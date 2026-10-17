@@ -113,7 +113,9 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew assembleRelease --no-daemon
+          # -P 覆盖 prebuild 写进 android/gradle.properties 的四种架构，且只作用于这次
+          # assembleRelease。CI 和本地开发不走这条命令，仍用默认的多架构。
+          ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
 
       - name: Check APK
         run: |
