@@ -1,4 +1,13 @@
-import { backupFileName, BackupError, parseBackup } from './backup';
+import {
+  AUTO_BACKUP_KEEP,
+  autoBackupFileName,
+  autoBackupsToPrune,
+  autoBackupTime,
+  backupFileName,
+  BackupError,
+  parseBackup,
+  sortAutoBackups,
+} from './backup';
 
 const valid = {
   format: 'english-learn-backup',
@@ -70,5 +79,32 @@ describe('备份文件校验', () => {
     expect(backupFileName(new Date(2026, 9, 17, 9, 5).getTime())).toBe(
       'english-learn-backup-20261017-0905.json',
     );
+  });
+});
+
+describe('自动备份文件名与轮转', () => {
+  const t = (min: number) => new Date(2026, 9, 17, 9, min, 7).getTime();
+
+  it('文件名带本地时间和毫秒时间戳，能解析回创建时间', () => {
+    const name = autoBackupFileName(t(5));
+    expect(name).toBe(`auto-backup-20261017-090507-${t(5)}.json`);
+    expect(autoBackupTime(name)).toBe(t(5));
+    expect(autoBackupTime('english-learn-backup-20261017-0905.json')).toBeNull();
+    expect(autoBackupTime('auto-backup-x.json')).toBeNull();
+  });
+
+  it('按创建时间从新到旧排序，忽略其它文件', () => {
+    const names = [t(1), t(3), t(2)].map(autoBackupFileName);
+    expect(sortAutoBackups([...names, 'readme.txt']).map((b) => b.createdAt)).toEqual([
+      t(3),
+      t(2),
+      t(1),
+    ]);
+  });
+
+  it(`只保留最新 ${AUTO_BACKUP_KEEP} 份，不删除不认识的文件`, () => {
+    const names = [0, 1, 2, 3, 4, 5, 6].map((m) => autoBackupFileName(t(m)));
+    expect(autoBackupsToPrune([...names, 'other.json'])).toEqual([names[1], names[0]]);
+    expect(autoBackupsToPrune(names.slice(0, 3))).toEqual([]);
   });
 });

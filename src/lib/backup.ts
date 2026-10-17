@@ -122,3 +122,42 @@ export function backupFileName(now: number): string {
   const p = (n: number): string => String(n).padStart(2, '0');
   return `english-learn-backup-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
 }
+
+// ---------- 导入前自动备份（文件名与轮转，纯函数） ----------
+
+/** 自动备份最多保留几份 */
+export const AUTO_BACKUP_KEEP = 5;
+const AUTO_BACKUP_NAME = /^auto-backup-\d{8}-\d{6}-(\d+)\.json$/;
+
+/**
+ * 自动备份文件名：`auto-backup-YYYYMMDD-HHmmss-<毫秒时间戳>.json`。
+ * 前半段给人看（本地时间），末尾的毫秒时间戳用于排序，不受时区和改系统时间格式影响。
+ */
+export function autoBackupFileName(now: number): string {
+  const d = new Date(now);
+  const p = (n: number): string => String(n).padStart(2, '0');
+  const date = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+  const time = `${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return `auto-backup-${date}-${time}-${now}.json`;
+}
+
+/** 从自动备份文件名里取出创建时间；不是自动备份文件返回 null */
+export function autoBackupTime(name: string): number | null {
+  const m = AUTO_BACKUP_NAME.exec(name);
+  return m ? Number(m[1]) : null;
+}
+
+/** 只保留自动备份文件，按创建时间从新到旧排列（其它文件忽略） */
+export function sortAutoBackups(names: readonly string[]): { name: string; createdAt: number }[] {
+  return names
+    .map((name) => ({ name, createdAt: autoBackupTime(name) }))
+    .filter((b): b is { name: string; createdAt: number } => b.createdAt !== null)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** 轮转：返回需要删除的自动备份（保留最新的 keep 份；不认识的文件一律不删） */
+export function autoBackupsToPrune(names: readonly string[], keep = AUTO_BACKUP_KEEP): string[] {
+  return sortAutoBackups(names)
+    .slice(Math.max(0, keep))
+    .map((b) => b.name);
+}

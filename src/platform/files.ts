@@ -7,7 +7,7 @@ export async function saveTextFile(name: string, text: string): Promise<'shared'
   const file = new File(Paths.cache, name);
   if (file.exists) file.delete();
   file.create();
-  file.write(text);
+  await file.write(text);
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(file.uri, {
       mimeType: 'application/json',
