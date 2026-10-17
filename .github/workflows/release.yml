@@ -82,7 +82,7 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Install Android SDK packages
+      - name: Accept Android SDK licenses
         run: |
           set -euo pipefail
           sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
@@ -98,8 +98,11 @@ jobs:
             echo "::error::sdkmanager was not found under ${sdk_root}."
             exit 1
           fi
+          # ubuntu-latest 自带的 sdkmanager 包索引落后，会找不到 Expo 实际要用的
+          # platforms;android-37。compileSdk / build-tools / NDK 由 Gradle 在配置期
+          # 从 React Native 的 version catalog（可被 android/gradle.properties 覆盖）解析，
+          # 不写进 prebuild 生成的 build.gradle。接受许可证后交给 AGP 下载这些包。
           yes | "$sdkmanager" --licenses >/dev/null || true
-          "$sdkmanager" --install "platforms;android-37" "build-tools;37.0.0" "ndk;27.1.12297006"
 
       - name: Assemble release APK
         working-directory: android

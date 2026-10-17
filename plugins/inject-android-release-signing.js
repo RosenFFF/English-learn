@@ -9,15 +9,17 @@ const DEBUG_SIGNING_BLOCK = `        debug {
 
 const RELEASE_SIGNING_BLOCK = `        release {
             // ${MARKER}
-            def keystorePath = System.getenv('ANDROID_KEYSTORE_FILE')
-            def keyAlias = System.getenv('ANDROID_KEY_ALIAS')
-            def storePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD')
-            def keyPassword = System.getenv('ANDROID_KEY_PASSWORD')
-            if (keystorePath != null && keyAlias != null && storePassword != null && keyPassword != null) {
-                storeFile file(keystorePath)
-                storePassword storePassword
-                keyAlias keyAlias
-                keyPassword keyPassword
+            // Local names must not match the signingConfig methods. Groovy would
+            // call the String instead of storePassword/keyAlias/keyPassword.
+            def releaseKeystorePath = System.getenv('ANDROID_KEYSTORE_FILE')
+            def releaseKeyAlias = System.getenv('ANDROID_KEY_ALIAS')
+            def releaseStorePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD')
+            def releaseKeyPassword = System.getenv('ANDROID_KEY_PASSWORD')
+            if (releaseKeystorePath != null && releaseKeyAlias != null && releaseStorePassword != null && releaseKeyPassword != null) {
+                storeFile file(releaseKeystorePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
             }
         }`;
 

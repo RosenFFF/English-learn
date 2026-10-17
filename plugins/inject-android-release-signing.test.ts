@@ -19,6 +19,12 @@ describe('injectAndroidReleaseSigning', () => {
     expect(result).toContain("System.getenv('ANDROID_KEY_ALIAS')");
     expect(result).toContain("System.getenv('ANDROID_KEYSTORE_PASSWORD')");
     expect(result).toContain("System.getenv('ANDROID_KEY_PASSWORD')");
+    expect(result).toContain('storePassword releaseStorePassword');
+    expect(result).toContain('keyAlias releaseKeyAlias');
+    expect(result).toContain('keyPassword releaseKeyPassword');
+    expect(result).not.toContain('def storePassword =');
+    expect(result).not.toContain('def keyAlias =');
+    expect(result).not.toContain('def keyPassword =');
     expect(result).toContain('Missing Android release signing environment variables');
     expect(result).not.toContain(
       `see https://reactnative.dev/docs/signed-apk-android.\n            signingConfig signingConfigs.debug`,
