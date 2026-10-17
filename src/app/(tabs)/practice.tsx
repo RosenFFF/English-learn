@@ -89,7 +89,7 @@ export default function PracticeScreen() {
         style={{ marginVertical: space.md, marginLeft: space.xs }}
       >
         {kind === '弱点词'
-          ? '最近\u00a014\u00a0天选过「忘了」或忘记过\u00a02\u00a0次以上的词。'
+          ? '最近\u00a014\u00a0天选过「忘了」，或累计忘记过\u00a02\u00a0次以上的词。'
           : '最近\u00a07\u00a0天第一次学的词，按时间倒序。'}
         {/* 操作提示单独一行，窄屏上也不会把「点一下」拆开；数字和单位之间用不换行空格 */}
         {'\n点一下单词听发音。'}
