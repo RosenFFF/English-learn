@@ -65,6 +65,13 @@ jobs:
             exit 1
           fi
 
+      - name: Set Android version from the release tag
+        env:
+          ANDROID_RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          node src/lib/android-version.js "$ANDROID_RELEASE_TAG"
+
       - name: Prebuild Android project
         run: npx expo prebuild --platform android --no-install
 

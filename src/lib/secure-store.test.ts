@@ -99,6 +99,25 @@ describe('llm api key secure store', () => {
     expect(deleteItemAsync).toHaveBeenCalledWith(LLM_API_KEY_STORAGE_KEY);
   });
 
+  it('treats a decrypt failure as no key and clears the stored value', async () => {
+    getItemAsync.mockRejectedValue(
+      Object.assign(new Error("Could not decrypt the value for key 'llm.apiKey'"), {
+        code: 'ERR_DECRYPT',
+      }),
+    );
+    deleteItemAsync.mockResolvedValue(undefined);
+
+    await expect(getLlmApiKey()).resolves.toBeNull();
+    expect(deleteItemAsync).toHaveBeenCalledWith(LLM_API_KEY_STORAGE_KEY);
+  });
+
+  it('still throws when a read fails for a reason other than decrypt', async () => {
+    getItemAsync.mockRejectedValue(new Error('User canceled the authentication'));
+
+    await expect(getLlmApiKey()).rejects.toThrow('User canceled the authentication');
+    expect(deleteItemAsync).not.toHaveBeenCalled();
+  });
+
   it('rejects an empty key before touching secure store', async () => {
     await expect(setLlmApiKey('   ')).rejects.toThrow('API key must not be empty');
     expect(setItemAsync).not.toHaveBeenCalled();

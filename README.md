@@ -76,6 +76,10 @@ base64 < english-learn-release.keystore | tr -d '\n'
 
 密钥库文件已被 `.gitignore` 忽略。API 密钥不是这个密钥库，它由用户在「我的」里填写，只进 `expo-secure-store`。
 
+`android:allowBackup` 保持开启（系统默认），换手机时系统备份可以带走学习进度。API 密钥存在 Android Keystore 里，换设备后不会恢复，需要重新填写。`expo-secure-store` 会把这份密钥排除在自动备份之外，避免新设备读到无法解密的数据。
+
+标签 `vMAJOR.MINOR.PATCH` 同时作为 APK 的 versionName。versionCode 按 `MAJOR * 10000 + MINOR * 100 + PATCH` 计算，例如 `v0.2.3` 是 203，`v0.1.0` 是 100。MINOR 和 PATCH 必须各自在 0 到 99 之间；超出时发布工作流会在 prebuild 之前失败，并写明是哪一段超了。本地不打标签时，版本取 `package.json` 里的 `version`（当前 `0.1.0`，versionCode 100）。也可以在本地设置 `ANDROID_RELEASE_TAG=v0.2.3` 再 prebuild。
+
 准备好 secret 之后：
 
 ```bash

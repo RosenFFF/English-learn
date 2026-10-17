@@ -1,9 +1,13 @@
 import type { ExpoConfig } from 'expo/config';
 
+import { resolveAndroidRelease } from './src/lib/android-version';
+
+const androidRelease = resolveAndroidRelease();
+
 const config: ExpoConfig = {
   name: '英语词汇',
   slug: 'english-learn',
-  version: '0.1.0',
+  version: androidRelease.version,
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   scheme: 'englishlearn',
@@ -13,6 +17,10 @@ const config: ExpoConfig = {
   },
   android: {
     package: 'com.rosenfff.englishlearn',
+    versionCode: androidRelease.versionCode,
+    // Android's default is true. Leave it on so a system backup can carry
+    // learning progress to a new phone. expo-secure-store excludes the API key.
+    allowBackup: true,
     adaptiveIcon: {
       backgroundColor: '#E6F4FE',
       foregroundImage: './assets/images/android-icon-foreground.png',
@@ -28,7 +36,13 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
-    'expo-secure-store',
+    [
+      'expo-secure-store',
+      {
+        // Default. Backup and data-extraction rules exclude SecureStore shared preferences.
+        configureAndroidBackup: true,
+      },
+    ],
     './plugins/withAndroidReleaseSigning',
     [
       'expo-splash-screen',

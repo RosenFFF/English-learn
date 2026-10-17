@@ -4,6 +4,7 @@ module.exports = {
   testTimeout: 30000,
   moduleNameMapper: {
     '\\.css$': '<rootDir>/test/empty-module.js',
+    '^@/(.*)$': '<rootDir>/src/$1',
   },
   testPathIgnorePatterns: [
     '/node_modules/',
