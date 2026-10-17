@@ -7,6 +7,7 @@ import {
   clearLlmApiKey,
   getLlmApiKey,
   LLM_API_KEY_STORAGE_KEY,
+  readLlmApiKey,
   setLlmApiKey,
 } from './secure-store';
 
@@ -108,6 +109,26 @@ describe('llm api key secure store', () => {
     deleteItemAsync.mockResolvedValue(undefined);
 
     await expect(getLlmApiKey()).resolves.toBeNull();
+    expect(deleteItemAsync).toHaveBeenCalledWith(LLM_API_KEY_STORAGE_KEY);
+  });
+
+  it('reports whether the key is present, missing, or was unreadable and cleared', async () => {
+    getItemAsync.mockResolvedValue(SECRET);
+    await expect(readLlmApiKey()).resolves.toEqual({ status: 'ok', apiKey: SECRET });
+
+    getItemAsync.mockResolvedValue(null);
+    await expect(readLlmApiKey()).resolves.toEqual({ status: 'missing' });
+    expect(deleteItemAsync).not.toHaveBeenCalled();
+
+    getItemAsync.mockRejectedValue(
+      Object.assign(new Error("Could not decrypt the value for key 'llm.apiKey'"), {
+        code: 'ERR_DECRYPT',
+      }),
+    );
+    deleteItemAsync.mockRejectedValue(new Error('keystore unavailable'));
+    const result = await readLlmApiKey();
+    expect(result).toEqual({ status: 'unreadable' });
+    expect(JSON.stringify(result)).not.toMatch(/decrypt/i);
     expect(deleteItemAsync).toHaveBeenCalledWith(LLM_API_KEY_STORAGE_KEY);
   });
 
