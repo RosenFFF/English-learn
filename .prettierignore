@@ -1,0 +1,13 @@
+node_modules
+dist
+android
+ios
+coverage
+.expo
+web-build
+playwright-report
+test-results
+package-lock.json
+plugins/__fixtures__
+
+docs/architecture.md
