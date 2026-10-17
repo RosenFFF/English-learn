@@ -6,9 +6,9 @@ import { kvGet, kvSet } from '../../db/userRepo';
 import { chat, chatCompletionsUrl, LlmError, validateConfig, type LlmConfig } from '../../lib/llm';
 import { notifyDataChanged } from '../shared';
 import type { SqlDb } from '../../db/types';
-import { clearLlmApiKey, readLlmApiKey, setLlmApiKey } from '../../lib/secure-store';
+import { clearLlmApiKey, readLlmApiKey, setLlmApiKey } from '../../platform/secure-store';
 
-/** 网页调试版没有安全存储（src/lib/secure-store.web.ts 只放内存），界面据此提示刷新后要重填 */
+/** 网页调试版没有安全存储（src/platform/secure-store.web.ts 只放内存），界面据此提示刷新后要重填 */
 export const SECRET_PERSISTED = Platform.OS !== 'web';
 
 export interface LlmSettings {
@@ -34,7 +34,7 @@ const KEY_LOST_FLAG = 'llm_auth_lost';
 async function readKey(user: SqlDb): Promise<{ key: string | null; lost: boolean }> {
   let r: Awaited<ReturnType<typeof readLlmApiKey>>;
   try {
-    // 解密失败的判断和清理在 src/lib/secure-store（骨架），这里只消费结果
+    // 解密失败的判断和清理在 src/platform/secure-store，这里只消费结果
     r = await readLlmApiKey();
   } catch {
     // 其它系统错误：本次当作没有密钥（AI 隐藏），不删除、不记录异常内容，界面不崩

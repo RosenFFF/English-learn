@@ -1,4 +1,4 @@
-/** 网页版：导出直接下载文件；导入用浏览器文件选择。 */
+/** 平台层（网页调试版）：导出直接下载文件；导入用浏览器文件选择。 */
 import * as DocumentPicker from 'expo-document-picker';
 
 export async function saveTextFile(name: string, text: string): Promise<'shared' | 'saved'> {

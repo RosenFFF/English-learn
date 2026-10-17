@@ -14,18 +14,19 @@
 - 计数口径：新词首次评分计 `new_count`；复习状态卡评分计 `review_count`（受每日上限约束）；学习中/重学中卡的短期重复只写日志，不占额度。
 - 每日上限与欠账：见 `src/lib/queue.ts` 顶部注释。
 - FSRS 参数：retention 0.9，learning_steps ['1m']（认识/简单直接毕业），relearning_steps ['10m']，开启 fuzz。
-- 密钥解不开（换手机/系统备份恢复后 Keystore 密钥不在了）：解密失败的判断和清理在骨架的 `src/lib/secure-store.ts`；`readLlmApiKey()` 返回 `ok / missing / unreadable`（`getLlmApiKey()` 行为不变）。`src/features/settings/service.ts` 只消费结果：`unreadable` 时当作未配置大模型（AI 隐藏），kv 里记 `llm_auth_lost=1`，设置页提示「密钥无法读取（可能是换了手机），请重新填写」，接口地址和模型名保留；重新填写密钥或清除配置后清掉标记。底层抛出的其它错误在 features 层吞掉、当作本次没有密钥，不记录异常内容。
-- 网页版（仅调试用）：expo-secure-store 没有网页实现，`src/lib/secure-store.web.ts` 把密钥只放内存，刷新即清空；网页版 SQLite 需要跨源隔离，`metro.config.js`（开发服务器）和 `scripts/serve-web.mjs`（导出产物）都加了 COOP/COEP 头；`web.output` 用 `single`。
+- 密钥解不开（换手机/系统备份恢复后 Keystore 密钥不在了）：解密失败的判断和清理在 `src/platform/secure-store.ts`；`readLlmApiKey()` 返回 `ok / missing / unreadable`（`getLlmApiKey()` 行为不变）。`src/features/settings/service.ts` 只消费结果：`unreadable` 时当作未配置大模型（AI 隐藏），kv 里记 `llm_auth_lost=1`，设置页提示「密钥无法读取（可能是换了手机），请重新填写」，接口地址和模型名保留；重新填写密钥或清除配置后清掉标记。底层抛出的其它错误在 features 层吞掉、当作本次没有密钥，不记录异常内容。
+- 网页版（仅调试用）：expo-secure-store 没有网页实现，`src/platform/secure-store.web.ts` 把密钥只放内存，刷新即清空；网页版 SQLite 需要跨源隔离，`metro.config.js`（开发服务器）和 `scripts/serve-web.mjs`（导出产物）都加了 COOP/COEP 头；`web.output` 用 `single`。
 
 ## 目录
 
-- 所有代码都在 `src/` 下：页面 `src/app/`（expo-router 在 `src/app` 存在时自动用它作为路由根，无需配置）、`src/features/`、`src/db/`、`src/lib/`、`src/ui/`。别名 `@/*` → `src/*`。
+- 所有代码都在 `src/` 下：页面 `src/app/`（expo-router 在 `src/app` 存在时自动用它作为路由根，无需配置）、`src/features/`、`src/db/`、`src/platform/`、`src/lib/`、`src/ui/`。别名 `@/*` → `src/*`。
 
 ## 分层（ESLint 强制）
 
-- `src/app/**` 不能 import `src/db`、`src/lib`、`expo-sqlite`、`expo-secure-store`。
+- `src/app/**` 不能 import `src/db`、`src/lib`、`src/platform` 和任何原生模块。
 - 只有 `src/db` 能 import `expo-sqlite`。
-- `src/lib` 不能依赖 react / react-native / expo。
+- 只有 `src/platform` 能 import 其它原生模块（安全存储、朗读、文件、分享等），业务代码通过它的薄封装调用。
+- `src/lib` 不能依赖 react / react-native / expo，也不能 import `src/platform`。
 
 ## 已定事项
 

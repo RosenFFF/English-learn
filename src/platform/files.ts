@@ -1,4 +1,4 @@
-/** 安卓：导出写到缓存目录后用系统分享面板保存；导入用系统文件选择器。 */
+/** 平台层（安卓）：导出写到缓存目录后用系统分享面板保存；导入用系统文件选择器。 */
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
