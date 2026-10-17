@@ -10,5 +10,6 @@ test('renders the four tabs', async ({ page }) => {
 
   await page.getByRole('tab', { name: '词书' }).click();
   await expect(page).toHaveURL(/\/books$/);
-  await expect(page.getByText('词书里的单词列表将在后续版本接入。')).toBeVisible();
+  // 词书页列出四级词书（数据来自浏览器端 SQLite 里的 words.db）
+  await expect(page.getByTestId('book-cet4')).toBeVisible({ timeout: 60_000 });
 });
