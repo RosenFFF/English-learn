@@ -8,10 +8,11 @@
 src/app/             expo-router 页面：(tabs)/today, books, practice, me
 src/features/<域>/   按业务域组织：study, books, ai, settings
 src/db/              SQLite 打开、迁移、仓储（repository）函数
+src/platform/        原生能力的薄封装（安全存储、朗读、文件读写/分享）；只有这里能 import 原生模块
 src/lib/             纯函数工具（fsrs 封装、日期、llm 客户端）
 assets/db/words.db   只读词库（构建时生成，脚本在 scripts/build-words-db）
 ```
-规则：页面只调用 features 暴露的 hook/函数；只有 src/db 能写 SQL；src/lib 不依赖 React。
+规则：页面只调用 features 暴露的 hook/函数；只有 src/db 能写 SQL；只有 src/platform 能引入除 expo-sqlite 外的原生模块；src/lib 不依赖 React，也不依赖 Expo。
 
 ## 两个数据库
 - words.db（只读，随包发布，可整体替换升级）

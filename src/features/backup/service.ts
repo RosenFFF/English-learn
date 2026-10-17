@@ -2,7 +2,7 @@ import { getDatabases } from '../../db/open';
 import { dumpForBackup, restoreFromBackup } from '../../db/userRepo';
 import { backupFileName, BackupError, parseBackup } from '../../lib/backup';
 import { notifyDataChanged } from '../shared';
-import { pickTextFile, saveTextFile } from './fileIO';
+import { pickTextFile, saveTextFile } from '../../platform/files';
 
 export async function exportProgress(): Promise<string> {
   const { user, schemaVersion } = await getDatabases();

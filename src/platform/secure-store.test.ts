@@ -63,7 +63,7 @@ describe('llm api key secure store', () => {
   it('uses a secure-store key and does not log or persist the secret elsewhere', async () => {
     expect(LLM_API_KEY_STORAGE_KEY).toMatch(/^[A-Za-z0-9._-]+$/);
 
-    const source = readFileSync(path.join(process.cwd(), 'src/lib/secure-store.ts'), 'utf8');
+    const source = readFileSync(path.join(process.cwd(), 'src/platform/secure-store.ts'), 'utf8');
     expect(source).not.toMatch(/console\./);
     expect(source).not.toMatch(/\b(expo-sqlite|sqlite3|user\.db|words\.db|INSERT |CREATE TABLE)\b/);
 
@@ -145,7 +145,7 @@ describe('llm api key secure store', () => {
   });
 
   it('is the only module that imports expo-secure-store', () => {
-    const allowed = path.normalize(path.join(process.cwd(), 'src/lib/secure-store.ts'));
+    const allowed = path.normalize(path.join(process.cwd(), 'src/platform/secure-store.ts'));
     const offenders = listSourceFiles(process.cwd()).filter((file) => {
       if (path.normalize(file) === allowed) {
         return false;

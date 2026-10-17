@@ -2,6 +2,46 @@ const { defineConfig } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
 const eslintConfigPrettier = require('eslint-config-prettier');
 
+/**
+ * Native capabilities. Only src/platform may import these; src/db alone may import expo-sqlite.
+ * Everything else reaches them through a thin wrapper in src/platform.
+ * UI-only Expo packages (expo-router, expo-status-bar, @expo/vector-icons) are not listed.
+ */
+const PLATFORM_NATIVE_MODULES = [
+  'expo-secure-store',
+  'expo-speech',
+  'expo-audio',
+  'expo-av',
+  'expo-file-system',
+  'expo-file-system/*',
+  'expo-document-picker',
+  'expo-sharing',
+  'expo-haptics',
+  'expo-clipboard',
+  'expo-notifications',
+  'expo-localization',
+  'expo-device',
+  'expo-network',
+  'expo-media-library',
+  'expo-image-picker',
+  'expo-camera',
+];
+const SQLITE_MODULES = ['expo-sqlite', 'expo-sqlite/*'];
+const REACT_PATHS = (dir) =>
+  ['react', 'react-dom', 'react-native', 'expo-router'].map((name) => ({
+    name,
+    message: `${dir} must not depend on React.`,
+  }));
+
+const nativeOnlyInPlatform = {
+  group: PLATFORM_NATIVE_MODULES,
+  message: 'Native capabilities live in src/platform. Import the wrapper from there instead.',
+};
+const sqliteOnlyInDb = {
+  group: SQLITE_MODULES,
+  message: 'Only src/db may open SQLite or run SQL.',
+};
+
 module.exports = defineConfig([
   {
     ignores: [
@@ -26,6 +66,13 @@ module.exports = defineConfig([
       'no-console': ['error', { allow: ['warn', 'error'] }],
     },
   },
+  // Any other directory under src/ (future ones included): no native modules, no SQLite.
+  {
+    files: ['src/**/*.{ts,tsx,js}'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [nativeOnlyInPlatform, sqliteOnlyInDb] }],
+    },
+  },
   {
     files: ['src/app/**/*.{ts,tsx}'],
     rules: {
@@ -39,18 +86,19 @@ module.exports = defineConfig([
                 '@/db/*',
                 '@/lib',
                 '@/lib/*',
+                '@/platform',
+                '@/platform/*',
                 '@/components',
                 '@/components/*',
                 '../*',
                 '../../*',
                 '../../../*',
-                'expo-sqlite',
-                'expo-sqlite/*',
-                'expo-secure-store',
               ],
               message:
                 'Route modules may only call src/features, plus the Expo Router and React Native runtime.',
             },
+            nativeOnlyInPlatform,
+            sqliteOnlyInDb,
           ],
         },
       ],
@@ -67,14 +115,8 @@ module.exports = defineConfig([
               group: ['@/app', '@/app/*'],
               message: 'Features must not import route modules.',
             },
-            {
-              group: ['expo-sqlite', 'expo-sqlite/*'],
-              message: 'Only src/db may open SQLite or run SQL.',
-            },
-            {
-              group: ['expo-secure-store'],
-              message: 'Read and write the API key through src/lib/secure-store only.',
-            },
+            nativeOnlyInPlatform,
+            sqliteOnlyInDb,
           ],
         },
       ],
@@ -94,12 +136,15 @@ module.exports = defineConfig([
                 '@/db',
                 '@/db/*',
                 '**/db/*',
-                'expo-sqlite',
-                'expo-sqlite/*',
-                'expo-secure-store',
+                '@/platform',
+                '@/platform/*',
+                '**/platform/*',
               ],
-              message: 'src/ui holds presentational components only: no routes, SQL, or secrets.',
+              message:
+                'src/ui holds presentational components only: no routes, SQL, secrets, or native calls.',
             },
+            nativeOnlyInPlatform,
+            sqliteOnlyInDb,
           ],
         },
       ],
@@ -111,13 +156,7 @@ module.exports = defineConfig([
       'no-restricted-imports': [
         'error',
         {
-          paths: [
-            { name: 'react', message: 'src/lib must not depend on React.' },
-            { name: 'react-dom', message: 'src/lib must not depend on React.' },
-            { name: 'react-native', message: 'src/lib must not depend on React.' },
-            { name: 'expo-router', message: 'src/lib must not depend on React.' },
-            { name: 'expo-sqlite', message: 'Only src/db may open SQLite or run SQL.' },
-          ],
+          paths: REACT_PATHS('src/lib'),
           patterns: [
             {
               group: [
@@ -127,11 +166,18 @@ module.exports = defineConfig([
                 '@/features/*',
                 '@/db',
                 '@/db/*',
+                '@/platform',
+                '@/platform/*',
+                '**/platform/*',
                 '@/components',
                 '@/components/*',
               ],
               message:
-                'src/lib is React-free and must not import app, features, db, or components.',
+                'src/lib is React-free and must not import app, features, db, platform, or components.',
+            },
+            {
+              group: ['expo', 'expo-*', 'expo-*/*', '@expo/*'],
+              message: 'src/lib holds pure logic only; wrap native capabilities in src/platform.',
             },
           ],
         },
@@ -144,12 +190,7 @@ module.exports = defineConfig([
       'no-restricted-imports': [
         'error',
         {
-          paths: [
-            { name: 'react', message: 'src/db must not depend on React.' },
-            { name: 'react-dom', message: 'src/db must not depend on React.' },
-            { name: 'react-native', message: 'src/db must not depend on React.' },
-            { name: 'expo-router', message: 'src/db must not depend on React.' },
-          ],
+          paths: REACT_PATHS('src/db'),
           patterns: [
             {
               group: [
@@ -163,6 +204,38 @@ module.exports = defineConfig([
               message:
                 'src/db is the SQL layer and must not import routes, features, or components.',
             },
+            nativeOnlyInPlatform,
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/platform/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: REACT_PATHS('src/platform'),
+          patterns: [
+            {
+              group: [
+                '@/app',
+                '@/app/*',
+                '@/features',
+                '@/features/*',
+                '@/db',
+                '@/db/*',
+                '**/db/*',
+                '@/ui',
+                '@/ui/*',
+                '@/components',
+                '@/components/*',
+              ],
+              message:
+                'src/platform holds thin native wrappers and must not import routes, features, db, or UI.',
+            },
+            sqliteOnlyInDb,
           ],
         },
       ],

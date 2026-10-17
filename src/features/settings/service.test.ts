@@ -2,7 +2,7 @@
  * @jest-environment node
  *
  * 密钥解不开时：当作「未配置大模型」（AI 隐藏），设置页拿到 keyUnreadable 提示，接口地址和模型名保留。
- * 解密失败的判断与清理属于 src/lib/secure-store（骨架，测试见 secure-store.test.ts）；这里把它 mock 掉，只测界面需要的状态。
+ * 解密失败的判断与清理属于 src/platform/secure-store（测试见 src/platform/secure-store.test.ts）；这里把它 mock 掉，只测界面需要的状态。
  */
 import { openMemoryDb } from '../../db/__testutils__/nodeDb';
 import { runMigrations } from '../../db/migrate';
@@ -10,7 +10,7 @@ import { MIGRATIONS } from '../../db/migrations';
 import type { SqlDb } from '../../db/types';
 import { kvGet, kvSet } from '../../db/userRepo';
 import { isAiConfigured, explainWord } from '../ai/explain';
-import * as secureStore from '../../lib/secure-store';
+import * as secureStore from '../../platform/secure-store';
 import { clearLlmSettings, getLlmConfig, loadLlmSettings, saveLlmSettings } from './service';
 
 const mockDb: { user: SqlDb | null } = { user: null };
@@ -19,7 +19,7 @@ jest.mock('../../db/open', () => ({
   getDatabases: jest.fn(async () => ({ user: mockDb.user, words: mockDb.user, schemaVersion: 1 })),
 }));
 jest.mock('expo-router', () => ({ useFocusEffect: jest.fn() }));
-jest.mock('../../lib/secure-store', () => ({
+jest.mock('../../platform/secure-store', () => ({
   readLlmApiKey: jest.fn(),
   setLlmApiKey: jest.fn(),
   clearLlmApiKey: jest.fn(),
