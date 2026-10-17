@@ -91,13 +91,12 @@ export default function MeScreen() {
     setBusy(true);
     setMsg(null);
     try {
-      // 选文件 → 校验 → 自动备份当前进度；备份失败会抛错，不会走到导入
+      // 选文件 → 校验（只读）；确认后 apply() 先自动备份再覆盖，备份失败会抛错，不会导入
       const prepared = await prepareImport();
-      refreshAutoBackups();
       if (!prepared) return;
       const ok = await confirmAsync(
         '导入进度',
-        `将导入 ${prepared.cards} 个单词的进度（备份于 ${formatBackupTime(prepared.exportedAt)}）。\n\n会覆盖当前进度，已自动备份一份（${formatBackupTime(prepared.backup.createdAt)}），可在「我的 → 从自动备份恢复」找回。AI 讲解缓存保留。`,
+        `将导入 ${prepared.cards} 个单词的进度（备份于 ${formatBackupTime(prepared.exportedAt)}）。\n\n会覆盖当前进度，覆盖前会先自动备份一份，可在「我的 → 从自动备份恢复」找回。AI 讲解缓存保留。`,
         '导入',
       );
       if (!ok) {
@@ -109,6 +108,7 @@ export default function MeScreen() {
     } catch (e) {
       setMsg({ text: failText(e), tone: 'warning' });
     } finally {
+      refreshAutoBackups();
       setBusy(false);
     }
   };
@@ -118,14 +118,13 @@ export default function MeScreen() {
     setMsg(null);
     try {
       const prepared = await prepareRestoreLatest();
-      refreshAutoBackups();
       if (!prepared) {
         setMsg({ text: '还没有自动备份。导入备份文件前会自动生成一份。', tone: 'info' });
         return;
       }
       const ok = await confirmAsync(
         '从自动备份恢复',
-        `将恢复 ${formatBackupTime(prepared.target.createdAt)} 的自动备份（${prepared.cards} 个单词）。\n\n会覆盖当前进度，已自动备份一份（${formatBackupTime(prepared.backup.createdAt)}），需要时可以再恢复回来。`,
+        `将恢复 ${formatBackupTime(prepared.target.createdAt)} 的自动备份（${prepared.cards} 个单词）。\n\n会覆盖当前进度，覆盖前会先自动备份一份当前进度，需要时可以再恢复回来。`,
         '恢复',
       );
       if (!ok) {
@@ -137,6 +136,7 @@ export default function MeScreen() {
     } catch (e) {
       setMsg({ text: failText(e), tone: 'warning' });
     } finally {
+      refreshAutoBackups();
       setBusy(false);
     }
   };

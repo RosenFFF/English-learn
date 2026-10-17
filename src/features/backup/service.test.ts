@@ -110,23 +110,42 @@ beforeEach(async () => {
   await repo.kvSet(user, 'words_db_version', '1');
 });
 
-it('导入前先生成自动备份，备份内容就是导入前的进度；确认后才覆盖', async () => {
+it('确认导入时先生成自动备份，备份内容就是导入前的进度，然后才覆盖', async () => {
   const before = await snapshot(user);
   const text = await otherDeviceBackupText();
   const prepared = await prepareImport(deps({ pickFile: async () => text }));
 
   expect(prepared).not.toBeNull();
   expect(prepared!.cards).toBe(3);
-  // 此时还没有导入
+  // 确认前：没导入，也没写备份
   expect(await snapshot(user)).toEqual(before);
-  // 已经有一份自动备份，内容等于当前进度
-  expect([...files.keys()]).toEqual([prepared!.backup.name]);
-  const saved = JSON.parse(files.get(prepared!.backup.name)!) as { card: unknown[] };
-  expect(saved.card).toEqual(before.card);
+  expect(files.size).toBe(0);
 
   await expect(prepared!.apply()).resolves.toMatch(/已导入 3 个单词/);
+  // 确认后：有一份自动备份，内容等于导入前的进度
+  const [backup] = await listAutoBackups(deps());
+  expect([...files.keys()]).toEqual([backup.name]);
+  const saved = JSON.parse(files.get(backup.name)!) as { card: unknown[] };
+  expect(saved.card).toEqual(before.card);
   expect(await repo.getCard(user, 101)).not.toBeNull();
   expect(await repo.getCard(user, 1)).toBeNull();
+});
+
+it('在确认框里取消导入或恢复，不写备份，备份列表不变', async () => {
+  const first = await prepareImport(deps({ pickFile: async () => otherDeviceBackupText() }));
+  await first!.apply();
+  const listed = (await listAutoBackups(deps())).map((b) => b.name);
+  const before = await snapshot(user);
+
+  // 打开再取消（不调 apply），来回多次
+  for (let i = 0; i < AUTO_BACKUP_KEEP + 2; i++) {
+    clock += 60_000;
+    await prepareImport(deps({ pickFile: async () => otherDeviceBackupText() }));
+    await prepareRestoreLatest(deps());
+  }
+
+  expect((await listAutoBackups(deps())).map((b) => b.name)).toEqual(listed);
+  expect(await snapshot(user)).toEqual(before);
 });
 
 it('用户取消选择文件时不备份也不导入', async () => {
@@ -149,7 +168,8 @@ it('自动备份失败时中止导入，当前进度没有任何改动', async (
       throw new Error('ENOSPC: no space left on device');
     },
   });
-  const p = prepareImport(deps({ pickFile: async () => text, store: failing }));
+  const prepared = await prepareImport(deps({ pickFile: async () => text, store: failing }));
+  const p = prepared!.apply();
   await expect(p).rejects.toBeInstanceOf(AutoBackupError);
   await expect(p).rejects.toThrow(/自动备份当前进度失败，已取消/);
   await expect(p).rejects.not.toThrow(/ENOSPC/);
@@ -184,17 +204,21 @@ it('从最近的自动备份恢复后，数据与导入前完全一致；恢复�
   const afterImport = await snapshot(user);
   expect(afterImport).not.toEqual(before);
 
+  const [importBackup] = await listAutoBackups(deps());
   const restore = await prepareRestoreLatest(deps());
   expect(restore).not.toBeNull();
-  expect(restore!.target.name).toBe(prepared!.backup.name);
+  expect(restore!.target.name).toBe(importBackup.name);
   expect(restore!.cards).toBe(5);
-  // 恢复前把「导入后」的进度也备份了一份，而且它现在是最新的
-  const saved = JSON.parse(files.get(restore!.backup.name)!) as { card: unknown[] };
-  expect(saved.card).toEqual(afterImport.card);
   expect(await snapshot(user)).toEqual(afterImport);
 
+  clock += 60_000;
   await expect(restore!.apply()).resolves.toMatch(/已从自动备份恢复 5 个单词/);
   expect(await snapshot(user)).toEqual(before);
+  // 恢复前把「导入后」的进度也备份了一份，而且它现在是最新的
+  const [latest] = await listAutoBackups(deps());
+  expect(latest.name).not.toBe(importBackup.name);
+  const saved = JSON.parse(files.get(latest.name)!) as { card: unknown[] };
+  expect(saved.card).toEqual(afterImport.card);
 });
 
 it('还没有自动备份时恢复返回 null，不改动进度', async () => {

@@ -75,18 +75,18 @@ async function applyPayload(payload: BackupPayload): Promise<void> {
   notifyDataChanged();
 }
 
-/** 已选好文件、已校验、已自动备份，等用户在确认框里点「导入」 */
+/** 已选好文件、已校验，等用户在确认框里点「导入」。此时还没有写任何东西。 */
 export interface PreparedImport {
   cards: number;
   exportedAt: number;
-  backup: AutoBackupInfo;
+  /** 先自动备份当前进度，再覆盖。备份失败抛 AutoBackupError，不会导入。 */
   apply: () => Promise<string>;
 }
 
 /**
- * 导入第一步：选文件 → 校验 → 自动备份当前进度。返回 null 表示用户取消了选择。
- * 文件无效抛 BackupError（不会生成备份）；自动备份失败抛 AutoBackupError（不会导入）。
- * 第二步 apply() 才真正覆盖进度。
+ * 导入第一步：选文件 → 校验，只读不写。返回 null 表示用户取消了选择。
+ * 文件无效抛 BackupError。用户确认后调 apply()：先自动备份当前进度，再覆盖；
+ * 这样在确认框里取消不会产生备份，也不会挤掉 5 份名额里有用的那份。
  */
 export async function prepareImport(
   deps: BackupDeps = defaultDeps,
@@ -94,12 +94,11 @@ export async function prepareImport(
   const text = await deps.pickFile();
   if (text == null) return null;
   const payload = parseBackup(text);
-  const backup = await createAutoBackup(deps);
   return {
     cards: payload.card.length,
     exportedAt: payload.exported_at,
-    backup,
     apply: async () => {
+      await createAutoBackup(deps);
       try {
         await applyPayload(payload);
       } catch {
@@ -110,17 +109,18 @@ export async function prepareImport(
   };
 }
 
-/** 从自动备份恢复：已读出并校验目标备份、已把当前进度再备份一份，等用户确认 */
+/** 从自动备份恢复：已读出并校验目标备份，等用户确认。此时还没有写任何东西。 */
 export interface PreparedRestore {
   target: AutoBackupInfo;
   cards: number;
-  backup: AutoBackupInfo;
+  /** 先把当前进度自动备份一份，再覆盖。备份失败抛 AutoBackupError，不会恢复。 */
   apply: () => Promise<string>;
 }
 
 /**
  * 从最近一份自动备份恢复。返回 null 表示还没有自动备份。
- * 恢复同样会覆盖当前进度，所以先把当前进度也自动备份一份（之后再点一次就能撤销）。
+ * 恢复同样会覆盖当前进度，所以 apply() 里先把当前进度也自动备份一份（之后再点一次就能撤销）。
+ * 只在用户确认后才备份，取消不会改动备份列表。
  */
 export async function prepareRestoreLatest(
   deps: BackupDeps = defaultDeps,
@@ -133,12 +133,11 @@ export async function prepareRestoreLatest(
   } catch (e) {
     throw e instanceof BackupError ? e : new BackupError('自动备份文件读不出来');
   }
-  const backup = await createAutoBackup(deps);
   return {
     target,
     cards: payload.card.length,
-    backup,
     apply: async () => {
+      await createAutoBackup(deps);
       try {
         await applyPayload(payload);
       } catch {
