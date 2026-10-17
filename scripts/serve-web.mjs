@@ -74,7 +74,12 @@ const server = createServer((request, response) => {
     return;
   }
   const type = MIME[extname(file)] ?? 'application/octet-stream';
-  response.writeHead(200, { 'Content-Type': type });
+  response.writeHead(200, {
+    'Content-Type': type,
+    // Web SQLite (expo-sqlite / wa-sqlite) needs SharedArrayBuffer, which requires cross-origin isolation.
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Embedder-Policy': 'credentialless',
+  });
   createReadStream(file).pipe(response);
 });
 

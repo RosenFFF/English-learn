@@ -19,17 +19,32 @@ function isDecryptFailure(error: unknown): boolean {
   return /decrypt/i.test(message);
 }
 
-export async function getLlmApiKey(): Promise<string | null> {
+/**
+ * Result of reading the API key. `unreadable` means a stored value existed but
+ * could not be decrypted (typically a backup restored onto a new phone); it has
+ * already been cleared. The UI uses this to ask the user to re-enter the key.
+ */
+export type LlmApiKeyRead =
+  { status: 'ok'; apiKey: string } | { status: 'missing' } | { status: 'unreadable' };
+
+export async function readLlmApiKey(): Promise<LlmApiKeyRead> {
+  let apiKey: string | null;
   try {
-    return await SecureStore.getItemAsync(LLM_API_KEY_STORAGE_KEY);
+    apiKey = await SecureStore.getItemAsync(LLM_API_KEY_STORAGE_KEY);
   } catch (error) {
     if (!isDecryptFailure(error)) {
       throw error;
     }
     // A restored backup can leave ciphertext the new device's Keystore cannot open.
     await SecureStore.deleteItemAsync(LLM_API_KEY_STORAGE_KEY).catch(() => undefined);
-    return null;
+    return { status: 'unreadable' };
   }
+  return apiKey === null ? { status: 'missing' } : { status: 'ok', apiKey };
+}
+
+export async function getLlmApiKey(): Promise<string | null> {
+  const result = await readLlmApiKey();
+  return result.status === 'ok' ? result.apiKey : null;
 }
 
 export async function setLlmApiKey(apiKey: string): Promise<void> {

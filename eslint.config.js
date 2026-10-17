@@ -22,6 +22,8 @@ module.exports = defineConfig([
     files: ['**/*.ts', '**/*.tsx'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',
+      // 密钥和学习数据不能进日志：只允许 warn / error
+      'no-console': ['error', { allow: ['warn', 'error'] }],
     },
   },
   {
@@ -42,6 +44,9 @@ module.exports = defineConfig([
                 '../*',
                 '../../*',
                 '../../../*',
+                'expo-sqlite',
+                'expo-sqlite/*',
+                'expo-secure-store',
               ],
               message:
                 'Route modules may only call src/features, plus the Expo Router and React Native runtime.',
@@ -62,6 +67,39 @@ module.exports = defineConfig([
               group: ['@/app', '@/app/*'],
               message: 'Features must not import route modules.',
             },
+            {
+              group: ['expo-sqlite', 'expo-sqlite/*'],
+              message: 'Only src/db may open SQLite or run SQL.',
+            },
+            {
+              group: ['expo-secure-store'],
+              message: 'Read and write the API key through src/lib/secure-store only.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/ui/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '@/app',
+                '@/app/*',
+                '@/db',
+                '@/db/*',
+                '**/db/*',
+                'expo-sqlite',
+                'expo-sqlite/*',
+                'expo-secure-store',
+              ],
+              message: 'src/ui holds presentational components only: no routes, SQL, or secrets.',
+            },
           ],
         },
       ],
@@ -78,6 +116,7 @@ module.exports = defineConfig([
             { name: 'react-dom', message: 'src/lib must not depend on React.' },
             { name: 'react-native', message: 'src/lib must not depend on React.' },
             { name: 'expo-router', message: 'src/lib must not depend on React.' },
+            { name: 'expo-sqlite', message: 'Only src/db may open SQLite or run SQL.' },
           ],
           patterns: [
             {

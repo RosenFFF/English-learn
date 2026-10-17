@@ -11,6 +11,8 @@ const config: ExpoConfig = {
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   scheme: 'englishlearn',
+  // 跟随系统深色模式（安卓上需要 expo-system-ui 才生效）
+  userInterfaceStyle: 'automatic',
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.rosenfff.englishlearn',
@@ -31,11 +33,16 @@ const config: ExpoConfig = {
   },
   web: {
     bundler: 'metro',
-    output: 'static',
+    // single：只导出一个 index.html，由前端路由接管。static 模式在本项目（以及当前 main 骨架）导出的
+    // HTML 里没有注入任何 JS，页面无法交互；词库和进度都在浏览器端 SQLite 里，也没有可预渲染的内容。
+    output: 'single',
     favicon: './assets/images/favicon.png',
+    lang: 'zh-CN',
   },
   plugins: [
     'expo-router',
+    'expo-sqlite',
+    'expo-sharing',
     [
       'expo-secure-store',
       {
