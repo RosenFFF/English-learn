@@ -12,7 +12,7 @@ const tabLabels = [
 
 describe('tabs', () => {
   it('renders the four tabs', async () => {
-    await renderRouter('./app', { initialUrl: '/today' });
+    await renderRouter('./src/app', { initialUrl: '/today' });
 
     for (const label of tabLabels) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);

@@ -19,7 +19,6 @@ jobs:
     timeout-minutes: 60
     env:
       EXPO_NO_TELEMETRY: '1'
-      ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/english-learn-release.keystore
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -57,8 +56,10 @@ jobs:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$ANDROID_KEYSTORE_FILE"
-          size="$(wc -c < "$ANDROID_KEYSTORE_FILE")"
+          keystore_file="${RUNNER_TEMP}/english-learn-release.keystore"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$keystore_file"
+          echo "ANDROID_KEYSTORE_FILE=${keystore_file}" >> "$GITHUB_ENV"
+          size="$(wc -c < "$keystore_file")"
           if [[ "$size" -lt 100 ]]; then
             echo "::error::ANDROID_KEYSTORE_BASE64 decoded to ${size} bytes, which is too small to be a keystore."
             exit 1

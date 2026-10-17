@@ -42,6 +42,11 @@ const config: ExpoConfig = {
   experiments: {
     typedRoutes: true,
   },
+  extra: {
+    router: {
+      root: 'src/app',
+    },
+  },
 };
 
 export default config;

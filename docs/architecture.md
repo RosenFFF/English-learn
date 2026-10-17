@@ -5,7 +5,7 @@
 
 ## 目录约定
 ```
-app/                 expo-router 页面：(tabs)/today, books, practice, me
+src/app/             expo-router 页面：(tabs)/today, books, practice, me
 src/features/<域>/   按业务域组织：study, books, ai, settings
 src/db/              SQLite 打开、迁移、仓储（repository）函数
 src/lib/             纯函数工具（fsrs 封装、日期、llm 客户端）
@@ -25,10 +25,12 @@ assets/db/words.db   只读词库（构建时生成，脚本在 scripts/build-wo
 
 ## user.db
 - schema_migrations(version INTEGER PK, applied_at)
-- card(word_id PK, due INTEGER, stability REAL, difficulty REAL, elapsed_days, scheduled_days, reps, lapses, state INTEGER, last_review INTEGER, updated_at INTEGER, deleted INTEGER DEFAULT 0)
+- card(word_id PK, due INTEGER, stability REAL, difficulty REAL, elapsed_days, scheduled_days, reps, lapses, state INTEGER, learning_steps INTEGER NOT NULL DEFAULT 0, last_review INTEGER, updated_at INTEGER, deleted INTEGER DEFAULT 0)
 - review_log(id TEXT PK /*uuid*/, word_id, rating INTEGER, state, due, reviewed_at INTEGER, elapsed_days, scheduled_days)
 - study_plan(book_id PK, daily_new INTEGER, daily_review_cap INTEGER, started_at, active INTEGER)
-- daily_stat(date TEXT PK /*YYYY-MM-DD 本地*/, new_count, review_count, minutes, streak_freeze_used INTEGER)
+- daily_stat(date TEXT PK /*YYYY-MM-DD 本地*/, new_count, review_count, minutes REAL, sessions INTEGER NOT NULL DEFAULT 0, streak_freeze_used INTEGER)
+- kv(key TEXT PRIMARY KEY, value TEXT NOT NULL)  -- 仅非敏感设置
+- 索引：card(deleted, state, due)、review_log(reviewed_at)、review_log(word_id)
 - ai_cache(word_id, kind, model, content, created_at, PRIMARY KEY(word_id, kind, model))
 - 时间一律存 Unix 毫秒 UTC；updated_at/deleted/uuid 预留给未来同步。
 - 设置（接口地址、模型名）存 kv 表；API 密钥只存 expo-secure-store，禁止写入 SQLite、日志、崩溃报告。

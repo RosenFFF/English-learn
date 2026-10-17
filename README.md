@@ -22,7 +22,7 @@ npm run android    # 在已连接的设备或模拟器上打开
 npm run web        # 浏览器里看同一套页面
 ```
 
-安卓包名是 `com.rosenfff.englishlearn`。`android/` 和 `ios/` 由 `npx expo prebuild` 生成，不提交。
+安卓包名是 `com.rosenfff.englishlearn`。页面在 `src/app/`，业务代码在 `src/features/`。`android/` 和 `ios/` 由 `npx expo prebuild` 生成，不提交。
 
 ## 测试
 
