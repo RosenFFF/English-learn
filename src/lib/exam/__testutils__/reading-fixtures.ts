@@ -1,14 +1,10 @@
 /**
- * 阅读的本地示例题（原创短文，不取自任何真题），PR-B 合并、接上题库后只留给单测和压测用。
+ * 阅读的测试题（原创短文，不取自任何真题）：只给单测和 e2e 的模拟大模型用，App 里不再内置。
+ * 形状就是 schemas.ts 的 payload，单测里用 parsePayload 校验。
  */
-import { letterOf, type ReadingSet } from './reading';
-import type {
-  BankedClozePayload,
-  CarefulReadingPayload,
-  ChoiceLetter,
-  MatchingPayload,
-  ReadingQuestionType,
-} from './reading-types';
+import { letterOf, type ReadingQuestionType, type ReadingSet } from '../reading';
+import type { BankedClozePayload, CarefulReadingPayload, MatchingPayload } from '../schemas';
+import type { ChoiceLetter } from '../types';
 
 // ---------- 选词填空 ----------
 
@@ -44,7 +40,7 @@ const CLOZE_KEY: [string, string][] = [
   ['integral', 'an 后接元音开头的形容词，an integral part of 表示「不可或缺的一部分」。'],
 ];
 
-/** 题目形状 = PR-B 的 BankedClozePayload（没有标题，答案是候选词下标） */
+/** 选词填空（没有标题，答案是候选词下标） */
 export const DEMO_BANKED_CLOZE: BankedClozePayload = {
   passage:
     'In many crowded cities, rooftops have long been treated as wasted space, covered with gravel and forgotten machinery. Over the past decade, however, a growing number of residents have begun to {{1}} these flat surfaces into small gardens. The trend is not merely decorative. Plants on a roof take in heat that would otherwise be {{2}} by concrete, which can cool the rooms below by several degrees in summer. They also slow the flow of rainwater, reducing the {{3}} on drainage systems during heavy storms.\n\n' +
@@ -126,7 +122,7 @@ const NIGHT_TRAIN_STATEMENTS: [string, number, string][] = [
   ],
 ];
 
-/** 题目形状 = PR-B 的 MatchingPayload */
+/** 长篇阅读（段落匹配） */
 export const DEMO_MATCHING: MatchingPayload = {
   title: 'The Return of the Night Train',
   paragraphs: NIGHT_TRAIN_PARAGRAPHS.map((text, i) => ({ label: letterOf(i), text })),
@@ -152,7 +148,7 @@ function questions(qs: Q[]): CarefulReadingPayload['questions'] {
   }));
 }
 
-/** 两篇 = 两道 careful_reading 题；形状 = PR-B 的 CarefulReadingPayload（没有标题） */
+/** 仔细阅读两篇 = 两道 careful_reading 题（没有标题） */
 export const DEMO_CAREFUL: CarefulReadingPayload[] = [
   {
     passage:
@@ -284,7 +280,7 @@ export const DEMO_CAREFUL: CarefulReadingPayload[] = [
   },
 ];
 
-/** 内置示例练习：每种题型一套 */
+/** 每种题型一套 */
 export const DEMO_READING: Readonly<Record<ReadingQuestionType, ReadingSet>> = {
   banked_cloze: {
     id: 'demo-banked-cloze',

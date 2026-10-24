@@ -3,24 +3,38 @@
  *
  * 一次练习是一个 ReadingSet：选词填空、段落匹配各 1 道题（question 表 1 行），
  * 仔细阅读 2 道题（两篇文章，各 5 小题）。所有小题按顺序摊平成一张「答题卡」，
- * 格子里存的值和 PR-B 的 ObjectiveAnswerMap 一致：选词填空存候选词下标（number），
+ * 格子里存的值和 grade.ts 的 ObjectiveAnswerMap 一致：选词填空存候选词下标（number），
  * 段落匹配存段落字母，仔细阅读存 A–D；null 表示没答。
  * - 选词填空：`unique` 为 true，一个词只能填进一个空；有「当前空位」focus，点词填进 focus。
  * - 段落匹配、仔细阅读：`unique` 为 false，同一个段落可以被多句选中。
  * 提交之后答题卡锁定，除 reset 外的操作都不改状态。
  */
-import {
-  BLANK_MARKER,
-  CHOICE_LETTERS,
-  type ReadingAnswerMap,
-  type ReadingPayloadMap,
-  type ReadingQuestionType,
-} from './reading-types';
+import type { ObjectiveAnswerMap } from './grade';
+import { BLANK_MARKER, type PayloadOf } from './schemas';
+import { CHOICE_LETTERS, QUESTION_SECTION, type QuestionType } from './types';
+
+/** 阅读板块的三种题型（= types.ts 里 section 为 reading 的题型，单测校验） */
+export const READING_QUESTION_TYPES = [
+  'banked_cloze',
+  'matching',
+  'careful_reading',
+] as const satisfies readonly QuestionType[];
+export type ReadingQuestionType = (typeof READING_QUESTION_TYPES)[number];
+
+export function isReadingQuestionType(v: unknown): v is ReadingQuestionType {
+  return typeof v === 'string' && (READING_QUESTION_TYPES as readonly string[]).includes(v);
+}
+
+/** 题型是不是属于阅读板块（和 READING_QUESTION_TYPES 互相校验） */
+export const isReadingSectionType = (t: QuestionType): boolean => QUESTION_SECTION[t] === 'reading';
+
+/** 每道题作答数组的形状 = grade.ts 的 ObjectiveAnswerMap */
+export type ReadingAnswerMap = Pick<ObjectiveAnswerMap, ReadingQuestionType>;
 
 /** 一道题（question 表的一行）：id 是 question.id */
 export interface ReadingPart<T extends ReadingQuestionType> {
   id: string;
-  payload: ReadingPayloadMap[T];
+  payload: PayloadOf<T>;
 }
 
 /** 一次练习 */
@@ -206,8 +220,8 @@ export function sheetReducer(sheet: AnswerSheet, action: SheetAction): AnswerShe
 }
 
 /**
- * 按题拆出作答数组，形状 = PR-B 的 ObjectiveAnswerMap[type]，
- * 接题库后每道题直接交给 gradeObjective、写进 attempt.answer。
+ * 按题拆出作答数组，形状 = grade.ts 的 ObjectiveAnswerMap[type]，
+ * 每道题直接交给 gradeObjective、写进 attempt.answer。
  */
 export function answersByPart<T extends ReadingQuestionType>(
   set: Extract<ReadingSet, { type: T }>,
@@ -220,7 +234,7 @@ export function answersByPart<T extends ReadingQuestionType>(
   return out as ReadingAnswerMap[T][];
 }
 
-/** 字段名同 PR-B grade.ts 的 ItemResult / ObjectiveGrade */
+/** 字段名同 grade.ts 的 ItemResult / ObjectiveGrade；多了 unanswered，界面用 */
 export interface ItemResult {
   index: number;
   correct: boolean;
@@ -239,7 +253,7 @@ export interface GradeResult {
   items: ItemResult[];
 }
 
-/** 判分：逐题比对，没答算错（与 PR-B gradeObjective 同规则） */
+/** 判分：整套题摊平后逐题比对，没答算错（与 gradeObjective 同规则，单测校验两者一致） */
 export function gradeSheet(set: ReadingSet, sheet: AnswerSheet): GradeResult {
   const items = itemsOf(set).map((item, index): ItemResult => {
     const given = sheet.answers[index] ?? null;

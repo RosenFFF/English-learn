@@ -12,7 +12,7 @@
  * 所以这里只按分值比例折成「百分制整卷里的卷面分」（选词填空每题 0.5、长篇阅读每题 1、
  * 仔细阅读每题 2）。不换算成 710 分制的报道分：官方报道分不是卷面分的线性换算，算出来是编的。
  */
-import type { ReadingQuestionType } from './reading-types';
+import type { ReadingQuestionType } from './reading';
 
 export interface Cet6Weight {
   /** 这一题型占整卷的百分比 */

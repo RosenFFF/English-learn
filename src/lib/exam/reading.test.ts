@@ -24,15 +24,17 @@ import {
   DEMO_MATCHING,
   DEMO_READING,
   stressReadingSet,
-} from './reading-fixtures';
+} from './__testutils__/reading-fixtures';
+import { gradeObjective, type ObjectiveQuestion } from './grade';
+import { READING_QUESTION_TYPES, isReadingQuestionType, isReadingSectionType } from './reading';
 import {
   BANKED_CLOZE_BLANKS,
   BANKED_CLOZE_OPTIONS,
   CAREFUL_READING_QUESTIONS,
   MATCHING_STATEMENTS,
-  READING_QUESTION_TYPES,
-  isReadingQuestionType,
-} from './reading-types';
+  parsePayload,
+} from './schemas';
+import { QUESTION_TYPES } from './types';
 
 const run = (sheet: AnswerSheet, ...actions: SheetAction[]): AnswerSheet =>
   actions.reduce(sheetReducer, sheet);
@@ -282,7 +284,49 @@ describe('选词填空正文切分', () => {
   });
 });
 
-describe('示例题自检（规则同 PR-B schemas.ts）', () => {
+describe('和题库层对齐', () => {
+  it('阅读题型 = types.ts 里 section 为 reading 的题型', () => {
+    expect([...READING_QUESTION_TYPES]).toEqual(QUESTION_TYPES.filter(isReadingSectionType));
+  });
+
+  it('测试题（含压测版）都能通过 schemas.ts 校验', () => {
+    for (const t of READING_QUESTION_TYPES)
+      for (const set of [DEMO_READING[t], stressReadingSet(t)])
+        for (const part of set.parts) {
+          const r = parsePayload(set.type, part.payload);
+          expect(r.success ? 'ok' : JSON.stringify(r.error.issues)).toBe('ok');
+        }
+  });
+
+  it('gradeSheet 和按题调用 gradeObjective 的结果一致', () => {
+    for (const t of READING_QUESTION_TYPES) {
+      const set = DEMO_READING[t];
+      let sheet = createSheet(set);
+      itemsOf(set).forEach((it, i) => {
+        const value =
+          i % 2 === 0
+            ? it.expected
+            : i % 3 === 0
+              ? it.choices.find((c) => c !== it.expected)
+              : null;
+        if (value !== null && value !== undefined)
+          sheet = sheetReducer(sheet, { type: 'answer', index: i, value });
+      });
+      const mine = gradeSheet(set, sheet);
+      const byPart = answersByPart(set as never, sheet) as never[];
+      const theirs = set.parts.map((part, pi) =>
+        gradeObjective({ type: set.type, payload: part.payload } as ObjectiveQuestion, byPart[pi]!),
+      );
+      expect([mine.score, mine.maxScore, mine.wrongCount]).toEqual([
+        theirs.reduce((n, g) => n + g.score, 0),
+        theirs.reduce((n, g) => n + g.maxScore, 0),
+        theirs.reduce((n, g) => n + g.wrongCount, 0),
+      ]);
+    }
+  });
+});
+
+describe('测试题自检', () => {
   it('三种题型都有示例练习，type 对得上', () => {
     for (const t of READING_QUESTION_TYPES) expect(DEMO_READING[t].type).toBe(t);
     expect(isReadingQuestionType('careful_reading')).toBe(true);
