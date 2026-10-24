@@ -1,6 +1,6 @@
 /** user.db 仓储：所有读写学习进度的 SQL 都在这里。 */
 import type { BackupPayload, DailyStatRow, KvRow, StudyPlanRow } from '../lib/backup';
-import { EXPORTABLE_KV_KEYS } from '../lib/backup';
+import { isExportableKv } from '../lib/backup';
 import type { CardRow, ReviewLogRow } from '../lib/fsrs';
 import type { SqlDb, SqlValue } from './types';
 
@@ -320,7 +320,7 @@ export async function dumpForBackup(
     ),
     study_plan: await getPlans(db),
     daily_stat: await listDayStats(db),
-    kv: kv.filter((r) => EXPORTABLE_KV_KEYS.has(r.key)),
+    kv: kv.filter(isExportableKv),
   };
 }
 
@@ -356,7 +356,7 @@ export async function restoreFromBackup(db: SqlDb, p: BackupPayload): Promise<vo
         ),
       );
     for (const kv of p.kv)
-      if (EXPORTABLE_KV_KEYS.has(kv.key))
+      if (isExportableKv(kv))
         await db.runAsync('INSERT OR REPLACE INTO kv(key, value) VALUES (?, ?)', [
           kv.key,
           kv.value,

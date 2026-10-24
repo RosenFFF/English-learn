@@ -2,6 +2,7 @@
  * 学习进度导出/导入的文件格式与校验（纯函数）。
  * 只包含 user.db 里的学习数据和非敏感设置；API 密钥永远不导出。
  */
+import { isSelectableExam } from './exams';
 import type { CardRow, ReviewLogRow } from './fsrs';
 
 export const BACKUP_FORMAT = 'english-learn-backup';
@@ -47,7 +48,20 @@ export const EXPORTABLE_KV_KEYS: ReadonlySet<string> = new Set([
   'llm_model',
   'auto_speak',
   'group_size',
+  'exam',
 ]);
+
+/** 有固定取值范围的设置项：导入时值不合法就忽略这一项（保留设备上原来的值） */
+const KV_VALUE_CHECKS: Readonly<Record<string, (value: string) => boolean>> = {
+  exam: isSelectableExam,
+};
+
+/** 这一行设置能不能随备份导出 / 导入：键在白名单里，且值合法 */
+export function isExportableKv(row: KvRow): boolean {
+  if (!EXPORTABLE_KV_KEYS.has(row.key)) return false;
+  const check = KV_VALUE_CHECKS[row.key];
+  return check ? check(row.value) : true;
+}
 
 export class BackupError extends Error {}
 
@@ -113,7 +127,7 @@ export function parseBackup(text: string): BackupPayload {
       updated_at: isNum(c.updated_at) ? c.updated_at : p.exported_at,
       deleted: c.deleted === 1 ? 1 : 0,
     })),
-    kv: p.kv.filter((r) => EXPORTABLE_KV_KEYS.has(r.key)),
+    kv: p.kv.filter(isExportableKv),
   };
 }
 
