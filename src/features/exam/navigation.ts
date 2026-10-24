@@ -1,5 +1,7 @@
 /** 选考试页的唯一入口：首页右上角「切换」和「我的」里的「当前考试」都走这里。 */
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
+
+import { getSection, type SectionId } from '../../lib/exams';
 
 export type ExamPickerFrom = 'home' | 'me';
 
@@ -18,4 +20,21 @@ export function openExamPicker(from: ExamPickerFrom): void {
 export function leaveExamPicker(from: ExamPickerFrom | null): void {
   if (from && router.canGoBack()) router.back();
   else router.replace(from ? FROM_ROUTE[from] : '/home');
+}
+
+/** 已上线板块各自的页面；没在这里、或者还没上线的板块进 /section/[id] 占位页 */
+const LIVE_SECTION_ROUTES: Partial<Record<SectionId, Href>> = {
+  vocab: '/vocab',
+  reading: '/reading',
+};
+
+/** 首页板块卡片点进去去哪 */
+export function sectionHref(id: SectionId): Href {
+  const live = getSection(id).available ? LIVE_SECTION_ROUTES[id] : undefined;
+  return live ?? { pathname: '/section/[id]', params: { id } };
+}
+
+/** 已上线、有自己页面的板块（占位页据此重定向） */
+export function liveSectionHref(id: SectionId): Href | null {
+  return getSection(id).available ? (LIVE_SECTION_ROUTES[id] ?? null) : null;
 }

@@ -3,7 +3,7 @@ import { Redirect, router } from 'expo-router';
 import type { ComponentProps } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { openExamPicker } from '@/features/exam/navigation';
+import { openExamPicker, sectionHref } from '@/features/exam/navigation';
 import {
   examSections,
   getExam,
@@ -81,10 +81,12 @@ function SectionCard({
   const vocabLabel =
     section.id === 'vocab' && data?.book
       ? `，待复习 ${data.reviewToDo} 个，新词 ${data.newToDo} 个`
-      : '';
+      : section.id === 'reading'
+        ? '，3 种题型，示例题'
+        : '';
   return (
     <PressableScale
-      onPress={() => router.push(live ? '/vocab' : `/section/${section.id}`)}
+      onPress={() => router.push(sectionHref(section.id))}
       accessibilityRole="button"
       accessibilityLabel={`${section.title}${live ? vocabLabel : '，即将上线'}`}
       accessibilityHint={section.description}
@@ -114,6 +116,10 @@ function SectionCard({
       {live ? (
         section.id === 'vocab' ? (
           <VocabStatus data={today} />
+        ) : section.id === 'reading' ? (
+          <Txt variant="caption" tone="secondary">
+            3 种题型 · 示例题
+          </Txt>
         ) : null
       ) : (
         <Txt variant="caption" tone="tertiary">
