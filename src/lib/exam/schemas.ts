@@ -222,26 +222,26 @@ const withOptionalTopic = <S extends z.ZodType>(s: S) =>
  * 新生成的题用 GENERATION_SCHEMAS，topic 必填。
  */
 export const PAYLOAD_SCHEMAS = {
-  banked_cloze: withOptionalTopic(bankedClozeSchema),
-  matching: withOptionalTopic(matchingSchema),
-  careful_reading: withOptionalTopic(carefulReadingSchema),
-  translation: withOptionalTopic(translationSchema),
-  essay: withOptionalTopic(essaySchema),
-  long_conversation: withOptionalTopic(longConversationSchema),
-  passage: withOptionalTopic(passageSchema),
-  lecture: withOptionalTopic(lectureSchema),
+  banked_cloze: withOptionalTopic(BODY_SCHEMAS.banked_cloze),
+  matching: withOptionalTopic(BODY_SCHEMAS.matching),
+  careful_reading: withOptionalTopic(BODY_SCHEMAS.careful_reading),
+  translation: withOptionalTopic(BODY_SCHEMAS.translation),
+  essay: withOptionalTopic(BODY_SCHEMAS.essay),
+  long_conversation: withOptionalTopic(BODY_SCHEMAS.long_conversation),
+  passage: withOptionalTopic(BODY_SCHEMAS.passage),
+  lecture: withOptionalTopic(BODY_SCHEMAS.lecture),
 } as const satisfies Record<QuestionType, z.ZodType>;
 
 /** 生成新题用（schema v2）：topic 必填 */
 export const GENERATION_SCHEMAS = {
-  banked_cloze: withTopic(bankedClozeSchema),
-  matching: withTopic(matchingSchema),
-  careful_reading: withTopic(carefulReadingSchema),
-  translation: withTopic(translationSchema),
-  essay: withTopic(essaySchema),
-  long_conversation: withTopic(longConversationSchema),
-  passage: withTopic(passageSchema),
-  lecture: withTopic(lectureSchema),
+  banked_cloze: withTopic(BODY_SCHEMAS.banked_cloze),
+  matching: withTopic(BODY_SCHEMAS.matching),
+  careful_reading: withTopic(BODY_SCHEMAS.careful_reading),
+  translation: withTopic(BODY_SCHEMAS.translation),
+  essay: withTopic(BODY_SCHEMAS.essay),
+  long_conversation: withTopic(BODY_SCHEMAS.long_conversation),
+  passage: withTopic(BODY_SCHEMAS.passage),
+  lecture: withTopic(BODY_SCHEMAS.lecture),
 } as const satisfies Record<QuestionType, z.ZodType>;
 
 /** 读出来的题：v1 的老题可能没有 topic */
