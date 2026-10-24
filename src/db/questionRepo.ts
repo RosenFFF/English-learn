@@ -144,3 +144,32 @@ export async function statsBySection(db: SqlDb, exam: ExamId, since = 0): Promis
     [exam, since],
   );
 }
+
+/**
+ * 某门考试某种题型最近 limit 道未删除题目的话题（payload.topic），最新的在前，去重（不区分大小写）。
+ * v1 的老题没有 topic，跳过；payload 不是合法 JSON 的也跳过，不会让整个查询失败。
+ * 结果可以直接传给 generateQuestion 的 avoidTopics。
+ */
+export async function listRecentTopics(
+  db: SqlDb,
+  exam: ExamId,
+  type: QuestionType,
+  limit = 10,
+): Promise<string[]> {
+  const rows = await db.getAllAsync<{ topic: unknown }>(
+    `SELECT CASE WHEN json_valid(payload) THEN json_extract(payload, '$.topic') END AS topic
+     FROM question WHERE exam = ? AND type = ? AND deleted = 0
+     ORDER BY created_at DESC, id LIMIT ?`,
+    [exam, type, limit],
+  );
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const { topic } of rows) {
+    if (typeof topic !== 'string') continue;
+    const t = topic.trim();
+    if (!t || seen.has(t.toLowerCase())) continue;
+    seen.add(t.toLowerCase());
+    out.push(t);
+  }
+  return out;
+}
