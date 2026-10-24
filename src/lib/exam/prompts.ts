@@ -4,6 +4,7 @@
  * 改了评分 prompt 要把 GRADE_PROMPT_VERSION 加 1（随点评存进 attempt.feedback 的 promptVersion）。
  */
 import type { ChatMessage } from '../llm';
+import { LISTENING_SPEC, SCRIPT_SEGMENT_MAX_CHARS, type ListeningQuestionType } from './listening';
 import { promptText } from './sanitize';
 import {
   BANKED_CLOZE_BLANKS,
@@ -23,8 +24,12 @@ import {
 } from './schemas';
 import type { QuestionType, SubjectiveType } from './types';
 
-/** v2：要求输出 topic，支持避开最近的话题 */
-export const PROMPT_VERSION = 2;
+/**
+ * 生成 prompt 版本。
+ * v2：要求输出 topic，支持避开最近的话题。
+ * v3：听力三种题型改为输出角色表 roles + 分角色稿子 script，明确词数、段数和原创要求。
+ */
+export const PROMPT_VERSION = 3;
 
 const GEN_SYSTEM = [
   '你是大学英语六级（CET-6）命题专家，为备考学生出练习题。',
@@ -39,6 +44,23 @@ const GEN_SYSTEM = [
 
 const CHOICE_ITEM =
   '{"stem": "题干（英文）", "options": ["选项A", "选项B", "选项C", "选项D"], "answer": "A|B|C|D 之一", "explanation": "中文解析"}';
+
+/** 听力三种题型共用的要求：原创、分角色稿子、词数和题数按 LISTENING_SPEC */
+function listeningSpec(type: ListeningQuestionType, lines: string[]): string {
+  const spec = LISTENING_SPEC[type];
+  const [wMin, wMax] = spec.words;
+  const [qMin, qMax] = spec.questions;
+  const [sMin, sMax] = spec.segments;
+  const qText = qMin === qMax ? `${qMin}` : `${qMin} 到 ${qMax}`;
+  return [
+    ...lines,
+    '稿子必须完全原创：不得使用、复述或改写任何六级或其它考试的真题录音原文。',
+    `script 是分段数组，共 ${sMin} 到 ${sMax} 段，每段 {"speaker": 角色 id, "text": "这一段要朗读的英文"}；全部段落合计 ${wMin} 到 ${wMax} 个英文词，单段不超过 ${SCRIPT_SEGMENT_MAX_CHARS} 个字符。`,
+    'speaker 只能填 roles 里的 id；text 只写要朗读出来的话：不要在开头写说话人名字，不要舞台说明（如 [laughs]、(pause)），不要 Markdown、HTML、emoji 或中文。',
+    `配 ${qText} 道四选一题，题目要能只靠听懂录音作答；题干和选项写成书面英文，四个选项互不相同。`,
+    `输出格式：{"roles": [{"id": "W", "name": "Woman", "gender": "female"}, …], "script": [{"speaker": "W", "text": "…"}, …], "questions": [${CHOICE_ITEM}, …共 ${qText} 题]}`,
+  ].join('\n');
+}
 
 const GEN_SPEC: Readonly<Record<QuestionType, string>> = {
   banked_cloze: [
@@ -71,22 +93,21 @@ const GEN_SPEC: Readonly<Record<QuestionType, string>> = {
     'explanation 用中文说明审题要点、可选的文章结构和可用的论点。',
     `输出格式：{"title": "英文标题", "directions": "Directions: …", "minWords": ${ESSAY_MIN_WORDS}, "maxWords": ${ESSAY_MAX_WORDS}, "explanation": "中文解析"}`,
   ].join('\n'),
-  long_conversation: [
-    '题型：听力·长对话。',
-    '写一段约 300 词的英文对话，两位说话人（如 "M" 和 "W"）轮流发言，共 8 到 14 轮；配 4 道四选一题。',
-    '题目要能只靠听懂对话作答；题干和选项写成书面英文。',
-    `输出格式：{"transcript": [{"speaker": "W", "text": "…"}, {"speaker": "M", "text": "…"}, …], "questions": [${CHOICE_ITEM}, …共 4 题]}`,
-  ].join('\n'),
-  passage: [
-    '题型：听力·短文。',
-    '写一篇约 250 词的英文短文（新闻报道、故事或说明文），由一位说话人朗读；配 3 到 4 道四选一题。',
-    `输出格式：{"transcript": [{"speaker": "Narrator", "text": "一段或几段文字"}], "questions": [${CHOICE_ITEM}, …3 到 4 题]}`,
-  ].join('\n'),
-  lecture: [
-    '题型：听力·讲座 / 讲话。',
-    '写一段约 350 词的英文学术讲座或演讲稿，由一位说话人讲述；配 3 到 4 道四选一题。',
-    `输出格式：{"transcript": [{"speaker": "Lecturer", "text": "一段或几段文字"}], "questions": [${CHOICE_ITEM}, …3 到 4 题]}`,
-  ].join('\n'),
+  long_conversation: listeningSpec('long_conversation', [
+    '题型：听力·长对话（Section A）。',
+    '写一段两人对话，场景贴近大学生活、工作、求职、旅行、消费等，两人轮流发言、自然口语化。',
+    '两个角色一男一女：roles 里各写一个，id 用 "W" 和 "M"，name 写 "Woman" 和 "Man"（或具体称呼），gender 分别为 "female" 和 "male"。',
+  ]),
+  passage: listeningSpec('passage', [
+    '题型：听力·短文（Section B）。',
+    '写一篇新闻报道、故事或说明文，由一位播音员朗读。',
+    'roles 只有一个角色，如 {"id": "N", "name": "Narrator", "gender": "female" 或 "male"}。',
+  ]),
+  lecture: listeningSpec('lecture', [
+    '题型：听力·讲座 / 讲话（Section C）。',
+    '写一段学术讲座、演讲或广播讲话，由一位讲者讲述，有清楚的主题和层次。',
+    'roles 只有一个角色，如 {"id": "L", "name": "Lecturer" 或 "Professor Lee", "gender": "female" 或 "male"}。',
+  ]),
 };
 
 /** 避开话题最多几个 */

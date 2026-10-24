@@ -26,6 +26,15 @@ const choice = (stem: string, answer: 'A' | 'B' | 'C' | 'D') => ({
   explanation: '定位到第二段。',
 });
 
+/** 恰好 n 个英文词的一段朗读文字（label 计入词数） */
+export function speech(n: number, label: string): string {
+  const head = label.split(' ');
+  const filler = 'people often talk about city life and the changes it brings'.split(' ');
+  const out = [...head];
+  for (let i = 0; out.length < n; i++) out.push(filler[i % filler.length]);
+  return out.slice(0, n).join(' ') + '.';
+}
+
 export const VALID_PAYLOADS: Record<QuestionType, Record<string, unknown>> = {
   banked_cloze: {
     topic: 'remote work',
@@ -69,6 +78,40 @@ export const VALID_PAYLOADS: Record<QuestionType, Record<string, unknown>> = {
     maxWords: 200,
     explanation: '三段式：观点、理由、结论。',
   },
+  long_conversation: {
+    topic: 'a business trip',
+    roles: [
+      { id: 'W', name: 'Woman', gender: 'female' },
+      { id: 'M', name: 'Man', gender: 'male' },
+    ],
+    script: Array.from({ length: 8 }, (_, i) => ({
+      speaker: i % 2 === 0 ? 'W' : 'M',
+      text: speech(30, `turn ${i + 1}`),
+    })),
+    questions: (['A', 'B', 'C', 'D'] as const).map((a, i) => choice(`L${i + 1}`, a)),
+  },
+  passage: {
+    topic: 'local news',
+    roles: [{ id: 'N', name: 'Narrator', gender: 'male' }],
+    script: [
+      { speaker: 'N', text: speech(120, 'part one') },
+      { speaker: 'N', text: speech(100, 'part two') },
+    ],
+    questions: (['B', 'C', 'D'] as const).map((a, i) => choice(`P${i + 1}`, a)),
+  },
+  lecture: {
+    topic: 'urban heat islands',
+    roles: [{ id: 'L', name: 'Professor Lee', gender: 'female' }],
+    script: [
+      { speaker: 'L', text: speech(150, 'introduction') },
+      { speaker: 'L', text: speech(150, 'main point') },
+    ],
+    questions: (['D', 'C', 'B', 'A'] as const).map((a, i) => choice(`T${i + 1}`, a)),
+  },
+};
+
+/** schema v1、v2 时期的听力题（transcript 旧结构，没有角色表） */
+export const LEGACY_LISTENING_PAYLOADS = {
   long_conversation: {
     topic: 'a business trip',
     transcript: [

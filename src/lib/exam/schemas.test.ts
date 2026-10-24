@@ -250,22 +250,14 @@ describe('翻译、写作', () => {
   });
 });
 
-describe('听力', () => {
-  it('长对话必须 4 题、至少两位说话人', () => {
+describe('听力（v3 结构，细节见 listening.test.ts）', () => {
+  it('长对话必须 4 题', () => {
     expect(
       parsePayload(
         'long_conversation',
         mutate('long_conversation', (p) => p.questions.pop()),
       ).success,
     ).toBe(false);
-    expect(
-      messages(
-        'long_conversation',
-        mutate('long_conversation', (p) =>
-          p.transcript.forEach((l: { speaker: string }) => (l.speaker = 'W')),
-        ),
-      ),
-    ).toMatch(/2 位说话人/);
   });
   it('短文、讲座 3 到 4 题', () => {
     expect(
@@ -281,17 +273,17 @@ describe('听力', () => {
       ).success,
     ).toBe(false);
   });
-  it('原文行必须有 speaker 和 text', () => {
+  it('稿子段必须有 speaker 和 text', () => {
     expect(
       parsePayload(
         'passage',
-        mutate('passage', (p) => (loose(p).transcript = [{ text: 'x' }])),
+        mutate('passage', (p) => (loose(p).script = [{ text: 'x' }])),
       ).success,
     ).toBe(false);
     expect(
       parsePayload(
         'passage',
-        mutate('passage', (p) => (p.transcript = [])),
+        mutate('passage', (p) => (p.script = [])),
       ).success,
     ).toBe(false);
   });

@@ -28,9 +28,9 @@ function fakeChat(...replies: string[]) {
 }
 
 describe('版本号', () => {
-  it('schema v2、prompt v2', () => {
-    expect(SCHEMA_VERSION).toBe(2);
-    expect(PROMPT_VERSION).toBe(2);
+  it('schema v3、prompt v3（听力改为角色表 + 分角色稿子）', () => {
+    expect(SCHEMA_VERSION).toBe(3);
+    expect(PROMPT_VERSION).toBe(3);
   });
 });
 
@@ -114,7 +114,7 @@ describe('generateQuestion 的 avoidTopics', () => {
       avoidTopics: [' urban heat islands ', 'Urban Heat Islands', 'ocean plastic'],
     });
     expect(q.payload.topic).toBe('urban heat islands');
-    expect(q.schemaVersion).toBe(2);
+    expect(q.schemaVersion).toBe(SCHEMA_VERSION);
     const user = calls[0][1].content;
     expect(user.match(/^- "/gm)).toHaveLength(2);
     expect(user).toContain('- "ocean plastic"');
@@ -177,7 +177,7 @@ describe('读题兼容 v1（没有 topic）', () => {
   });
 
   it.each([
-    ['版本太新', 3, JSON.stringify(VALID_PAYLOADS.essay), /更新版本的 App/],
+    ['版本太新', SCHEMA_VERSION + 1, JSON.stringify(VALID_PAYLOADS.essay), /更新版本的 App/],
     ['版本不合法', 0, JSON.stringify(VALID_PAYLOADS.essay), /版本不合法/],
     ['版本不是整数', 1.5, JSON.stringify(VALID_PAYLOADS.essay), /版本不合法/],
     ['不是 JSON', 2, '{oops', /不是有效的 JSON/],
