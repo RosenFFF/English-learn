@@ -46,12 +46,14 @@ export function useMistakeBook() {
   return useLoader(getMistakeBook);
 }
 
-/** 点一条错题去哪重做；不能重做（读不出来、听力还没上线）返回 null */
+/** 点一条错题去哪重做；不能重做（题目读不出来）返回 null */
 export function redoHref(item: MistakeItem): Href | null {
   const t = item.redo;
   if (!t) return null;
   if (t.screen === 'reading')
     return { pathname: '/reading/[type]', params: { type: t.type, redo: item.questionId } };
+  if (t.screen === 'listening')
+    return { pathname: '/listening/[type]', params: { type: t.type, redo: item.questionId } };
   return {
     pathname: t.screen === 'translation' ? '/translation' : '/writing',
     params: { redo: item.questionId },

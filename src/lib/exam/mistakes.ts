@@ -42,6 +42,7 @@ export interface OpenMistakeRow {
 /** 点进去重做走哪个作答页；null 表示现在不能重做 */
 export type RedoTarget =
   | { screen: 'reading'; type: 'banked_cloze' | 'matching' | 'careful_reading' }
+  | { screen: 'listening'; type: 'long_conversation' | 'passage' | 'lecture' }
   | { screen: 'translation' }
   | { screen: 'writing' };
 
@@ -120,6 +121,10 @@ export function redoTarget(type: QuestionType): RedoTarget | null {
       return { screen: 'translation' };
     case 'essay':
       return { screen: 'writing' };
+    case 'long_conversation':
+    case 'passage':
+    case 'lecture':
+      return { screen: 'listening', type };
     default:
       return null;
   }

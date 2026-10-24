@@ -2,7 +2,7 @@
  * 错题本：行 → 条目（摘要、详情、能否重做）、按板块分组、重做后移不移出。
  */
 import { SECTION_IDS } from '../exams';
-import { VALID_PAYLOADS } from './__testutils__/fixtures';
+import { LEGACY_LISTENING_PAYLOADS, VALID_PAYLOADS } from './__testutils__/fixtures';
 import { DEMO_BANKED_CLOZE, DEMO_CAREFUL, DEMO_MATCHING } from './__testutils__/reading-fixtures';
 import { DEMO_ESSAY, DEMO_TRANSLATION } from './__testutils__/subjective-fixtures';
 import {
@@ -11,6 +11,7 @@ import {
   groupMistakes,
   mistakePreview,
   redoOutcomeText,
+  redoTarget,
   stillMistake,
   toMistakeItem,
   type OpenMistakeRow,
@@ -134,11 +135,24 @@ describe('toMistakeItem', () => {
     expect(item.redo).toEqual({ screen: 'reading', type: 'matching' });
   });
 
-  it('听力题还没有作答界面：列出来但暂时不能重做', () => {
-    const item = toMistakeItem(row('passage', { schema_version: 1 }));
+  it('听力题（含 v1 旧结构）能点进听力作答页重做', () => {
+    const item = toMistakeItem(row('passage', { schema_version: 3 }));
     expect(item.kind).toBe('objective');
-    expect(item.redo).toBeNull();
-    expect(item.blocked).toBe('听力界面上线后就能重做');
+    expect(item.blocked).toBeNull();
+    expect(item.redo).toEqual({ screen: 'listening', type: 'passage' });
+    // v1 旧结构（transcript）读出来转成 v3，也能重做
+    const legacy = toMistakeItem(
+      row('lecture', {
+        schema_version: 1,
+        payload: JSON.stringify(LEGACY_LISTENING_PAYLOADS.lecture),
+      }),
+    );
+    expect(legacy.blocked).toBeNull();
+    expect(legacy.redo).toEqual({ screen: 'listening', type: 'lecture' });
+    // v3 的题按 v1 存（结构对不上）：列出来但读不出来
+    expect(toMistakeItem(row('passage', { schema_version: 1 })).redo).toBeNull();
+    for (const t of ['long_conversation', 'lecture'] as const)
+      expect(redoTarget(t)).toEqual({ screen: 'listening', type: t });
   });
 
   it('累计次数至少按 1 次算', () => {
