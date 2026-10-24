@@ -30,6 +30,7 @@ const LIVE_CAPTION: Partial<Record<SectionId, string>> = {
   reading: '3 种题型 · 大模型出题',
   translation: '汉译英 · 大模型评分',
   writing: '15 分制 · 大模型评分',
+  mistakes: '错题 · 待重练',
 };
 
 function VocabStatus({ data }: { data: TodaySummary | null }) {

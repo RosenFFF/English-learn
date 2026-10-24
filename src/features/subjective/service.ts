@@ -19,6 +19,7 @@ import {
   draftKey,
   gradeToView,
   parseDraft,
+  type DraftSlot,
   type GradeView,
   type SubjectiveDraft,
 } from '../../lib/exam/subjective';
@@ -27,6 +28,7 @@ import { uuidv4 } from '../../lib/uuid';
 import { readSelectedExam } from '../exam/service';
 import { LlmNotConfiguredError } from '../generation/llm';
 import {
+  loadStoredQuestion,
   prepareQuestions,
   type PrepareOptions,
   type SkippedQuestion,
@@ -48,6 +50,8 @@ export {
   type LengthHint,
   type SubmitCheck,
 } from '../../lib/exam/subjective';
+export { redoOutcomeText } from '../../lib/exam/mistakes';
+export type { DraftSlot } from '../../lib/exam/subjective';
 export type { EssayPayload, TranslationPayload } from '../../lib/exam/schemas';
 export type { SubjectiveType } from '../../lib/exam/types';
 
@@ -97,16 +101,18 @@ export interface PreparedSubjective {
 export async function readDraft(
   user: SqlDb,
   type: SubjectiveType,
+  slot: DraftSlot = 'practice',
 ): Promise<SubjectiveDraft | null> {
-  return parseDraft(await kvGet(user, draftKey(type)));
+  return parseDraft(await kvGet(user, draftKey(type, slot)));
 }
 
 export async function writeDraft(
   user: SqlDb,
   type: SubjectiveType,
   draft: SubjectiveDraft | null,
+  slot: DraftSlot = 'practice',
 ): Promise<void> {
-  await kvSet(user, draftKey(type), draft ? JSON.stringify(draft) : '');
+  await kvSet(user, draftKey(type, slot), draft ? JSON.stringify(draft) : '');
 }
 
 /** 准备一道题：有草稿就接着写草稿那道；否则先用没做过的旧题，不够再生成 */
@@ -128,6 +134,33 @@ export async function prepareSubjective(
   };
 }
 
+/**
+ * 错题本重做：取题库里的原题（不重新出题）。草稿用单独的 redo 槽，只有同一道题的才恢复。
+ * 找不到 / 读不出来抛 StoredQuestionError（中文原因）。
+ */
+export async function prepareSubjectiveRedo(
+  user: SqlDb,
+  type: SubjectiveType,
+  questionId: string,
+): Promise<PreparedSubjective> {
+  const part = await loadStoredQuestion(user, type, questionId);
+  const draft = await readDraft(user, type, 'redo');
+  return {
+    question: { type, id: part.id, payload: part.payload } as SubjectiveQuestion,
+    draft: draft && draft.questionId === part.id ? draft : null,
+    skipped: [],
+  };
+}
+
+/** 页面用：错题本重做（评分要大模型，配置由页面流程先检查） */
+export async function startSubjectiveRedo(
+  type: SubjectiveType,
+  questionId: string,
+): Promise<PreparedSubjective> {
+  const { user } = await getDatabases();
+  return prepareSubjectiveRedo(user, type, questionId);
+}
+
 /** 页面用：读配置、开库、准备一道题。没配大模型抛 LlmNotConfiguredError */
 export async function startSubjective(
   type: SubjectiveType,
@@ -145,9 +178,13 @@ export async function startSubjective(
 }
 
 /** 页面用：保存草稿（自动保存调用） */
-export async function saveDraft(type: SubjectiveType, draft: SubjectiveDraft): Promise<void> {
+export async function saveDraft(
+  type: SubjectiveType,
+  draft: SubjectiveDraft,
+  slot: DraftSlot = 'practice',
+): Promise<void> {
   const { user } = await getDatabases();
-  await writeDraft(user, type, draft);
+  await writeDraft(user, type, draft, slot);
 }
 
 // ---------- 评分 ----------
@@ -169,7 +206,7 @@ export async function gradeAndSave(
   user: SqlDb,
   q: SubjectiveQuestion,
   answer: string,
-  opts: { deps: LlmDeps; startedAt: number; now?: () => number },
+  opts: { deps: LlmDeps; startedAt: number; now?: () => number; slot?: DraftSlot },
 ): Promise<{ view: GradeView; row: AttemptRow }> {
   const grade = await callGrade(q, answer, opts.deps);
   // 评分字段（score、max_score、feedback JSON、wrong_count、needs_redo）一律由 feedback.ts 生成
@@ -189,7 +226,7 @@ export async function gradeAndSave(
     submitted_at: submittedAt,
   };
   await insertAttempt(user, row);
-  await writeDraft(user, q.type, null);
+  await writeDraft(user, q.type, null, opts.slot);
   return { view, row };
 }
 
@@ -199,11 +236,16 @@ export async function submitSubjective(
   answer: string,
   startedAt: number,
   signal?: AbortSignal,
+  slot: DraftSlot = 'practice',
 ): Promise<GradeView> {
   const cfg = await getLlmConfig();
   if (!cfg) throw new LlmNotConfiguredError();
   const { user } = await getDatabases();
-  const { view } = await gradeAndSave(user, q, answer, { deps: { cfg, signal }, startedAt });
+  const { view } = await gradeAndSave(user, q, answer, {
+    deps: { cfg, signal },
+    startedAt,
+    slot,
+  });
   notifyDataChanged();
   return view;
 }

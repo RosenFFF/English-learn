@@ -79,8 +79,9 @@ export const SECTIONS: Readonly<Record<SectionId, SectionMeta>> = {
   mistakes: {
     id: 'mistakes',
     title: '错题本',
-    description: '集中回顾做错的题和练习记录。',
-    available: false,
+    description: '做错的阅读题和待重练的翻译、写作集中在这里，点进去重做原题。',
+    // 汇总页：按 attempt 表列出没过的题（src/lib/exam/mistakes.ts）
+    available: true,
   },
 };
 

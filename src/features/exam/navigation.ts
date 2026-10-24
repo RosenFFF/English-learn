@@ -28,6 +28,7 @@ const LIVE_SECTION_ROUTES: Partial<Record<SectionId, Href>> = {
   reading: '/reading',
   translation: '/translation',
   writing: '/writing',
+  mistakes: '/mistakes',
 };
 
 /** 首页板块卡片点进去去哪 */

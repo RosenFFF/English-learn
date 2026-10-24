@@ -381,3 +381,124 @@ describe('listRecentTopics', () => {
     expect(await qrepo.listRecentTopics(db, 'cet6', 'careful_reading')).toEqual(['ok']);
   });
 });
+
+describe('listOpenMistakes（错题本）', () => {
+  const subj = (over: Partial<AttemptRow>) =>
+    ({
+      section: 'writing',
+      type: 'essay',
+      score: 6,
+      max_score: 15,
+      wrong_count: 0,
+      needs_redo: 1,
+      feedback: '{}',
+      ...over,
+    }) as const;
+
+  beforeEach(async () => {
+    await qrepo.insertQuestion(db, question('r1', { payload: '{"passage":"one"}' }));
+    await qrepo.insertQuestion(db, question('r2', { type: 'matching', payload: '{"title":"t"}' }));
+    await qrepo.insertQuestion(
+      db,
+      question('e1', { section: 'writing', type: 'essay', payload: '{}' }),
+    );
+    await qrepo.insertQuestion(
+      db,
+      question('t1', { section: 'translation', type: 'translation', payload: '{}' }),
+    );
+  });
+
+  it('每道题只看最近一次作答：客观题 wrong_count > 0、主观题 needs_redo = 1 才列出，最近的在前', async () => {
+    await qrepo.insertAttempt(db, attempt('a1', 'r1', { wrong_count: 2, submitted_at: T0 + 10 }));
+    await qrepo.insertAttempt(
+      db,
+      attempt('a2', 'r2', { type: 'matching', wrong_count: 0, score: 10, max_score: 10 }),
+    );
+    await qrepo.insertAttempt(db, attempt('a3', 'e1', subj({ submitted_at: T0 + 30 })));
+    await qrepo.insertAttempt(
+      db,
+      attempt(
+        'a4',
+        't1',
+        subj({ section: 'translation', type: 'translation', score: 12, needs_redo: 0 }),
+      ),
+    );
+
+    const rows = await qrepo.listOpenMistakes(db, 'cet6');
+    expect(rows.map((r) => r.question_id)).toEqual(['e1', 'r1']);
+    expect(rows[1]).toEqual({
+      question_id: 'r1',
+      exam: 'cet6',
+      section: 'reading',
+      type: 'careful_reading',
+      score: 3,
+      max_score: 5,
+      wrong_count: 2,
+      needs_redo: 0,
+      submitted_at: T0 + 10,
+      miss_times: 1,
+      schema_version: 1,
+      payload: '{"passage":"one"}',
+    });
+  });
+
+  it('重做全对 / 主观题重做 ≥ 9 分后不再列出；重做还错就留着，次数累加、显示最新一次', async () => {
+    await qrepo.insertAttempt(db, attempt('r1-1', 'r1', { wrong_count: 3, submitted_at: T0 + 1 }));
+    await qrepo.insertAttempt(db, attempt('e1-1', 'e1', subj({ submitted_at: T0 + 2 })));
+    expect((await qrepo.listOpenMistakes(db, 'cet6')).map((r) => r.question_id)).toEqual([
+      'e1',
+      'r1',
+    ]);
+
+    // 阅读重做还错 1 题：留在错题本，显示最新的 1 题，累计没过 2 次
+    await qrepo.insertAttempt(
+      db,
+      attempt('r1-2', 'r1', { wrong_count: 1, score: 4, submitted_at: T0 + 3 }),
+    );
+    let rows = await qrepo.listOpenMistakes(db, 'cet6');
+    expect(rows.map((r) => [r.question_id, r.wrong_count, r.miss_times])).toEqual([
+      ['r1', 1, 2],
+      ['e1', 0, 1],
+    ]);
+
+    // 阅读重做全对、写作重做 9 分：都移出
+    await qrepo.insertAttempt(
+      db,
+      attempt('r1-3', 'r1', { wrong_count: 0, score: 5, submitted_at: T0 + 4 }),
+    );
+    await qrepo.insertAttempt(
+      db,
+      attempt('e1-2', 'e1', subj({ score: 9, needs_redo: 0, submitted_at: T0 + 5 })),
+    );
+    expect(await qrepo.listOpenMistakes(db, 'cet6')).toEqual([]);
+
+    // 作答记录一条没少（统计不受影响）
+    expect(await qrepo.listAttemptsForQuestion(db, 'r1')).toHaveLength(3);
+
+    // 之后又做错：重新进错题本
+    await qrepo.insertAttempt(db, attempt('r1-4', 'r1', { wrong_count: 2, submitted_at: T0 + 6 }));
+    rows = await qrepo.listOpenMistakes(db, 'cet6');
+    expect(rows.map((r) => [r.question_id, r.miss_times])).toEqual([['r1', 3]]);
+  });
+
+  it('按考试过滤；软删除的题照样列出；limit 生效', async () => {
+    await qrepo.insertAttempt(db, attempt('x1', 'r1', { wrong_count: 1, submitted_at: T0 + 1 }));
+    await qrepo.insertAttempt(
+      db,
+      attempt('x2', 'r2', { type: 'matching', wrong_count: 4, submitted_at: T0 + 2 }),
+    );
+    await qrepo.softDeleteQuestion(db, 'r1');
+    expect((await qrepo.listOpenMistakes(db, 'cet6')).map((r) => r.question_id)).toEqual([
+      'r2',
+      'r1',
+    ]);
+    expect(await qrepo.listOpenMistakes(db, 'ielts')).toEqual([]);
+    expect((await qrepo.listOpenMistakes(db, 'cet6', 1)).map((r) => r.question_id)).toEqual(['r2']);
+  });
+
+  it('同一时间提交的两次作答按 id 取最后一条，不会把一道题列两遍', async () => {
+    await qrepo.insertAttempt(db, attempt('z-a', 'r1', { wrong_count: 2, submitted_at: T0 }));
+    await qrepo.insertAttempt(db, attempt('z-b', 'r1', { wrong_count: 0, submitted_at: T0 }));
+    expect(await qrepo.listOpenMistakes(db, 'cet6')).toEqual([]);
+  });
+});

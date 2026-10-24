@@ -13,6 +13,7 @@ import {
   gradeSheet,
   isReadingQuestionType,
   needsExitConfirm,
+  redoOutcomeText,
   submitPrompt,
   submitReadingSet,
   useAnswerSheet,
@@ -30,21 +31,34 @@ function leave(): void {
   else router.replace('/reading');
 }
 
-type SaveState = { kind: 'idle' | 'saving' | 'saved' } | { kind: 'failed'; message: string };
+/** 错题本重做：没有上一页时回错题本 */
+function leaveRedo(): void {
+  if (router.canGoBack()) router.back();
+  else router.replace('/mistakes');
+}
+
+type SaveState =
+  | { kind: 'idle' | 'saving' }
+  | { kind: 'saved'; wrongCount: number }
+  | { kind: 'failed'; message: string };
 
 function Attempt({
   set,
   skipped,
   startedAt,
   onRestart,
+  redo,
 }: {
   set: ReadingSet;
   /** 题库里读不出来、被跳过的旧题的原因 */
   skipped: string[];
   startedAt: number;
   onRestart: () => void;
+  /** 从错题本进来重做这道原题 */
+  redo: boolean;
 }) {
   const p = usePalette();
+  const exit = redo ? leaveRedo : leave;
   const [sheet, dispatch] = useAnswerSheet(set);
   const [save, setSave] = useState<SaveState>({ kind: 'idle' });
   const [leaving, setLeaving] = useState(false);
@@ -70,8 +84,8 @@ function Attempt({
     dispatch({ type: 'submit' });
     setSave({ kind: 'saving' });
     try {
-      await submitReadingSet(set, sheet, startedAt);
-      setSave({ kind: 'saved' });
+      const { wrongCount } = await submitReadingSet(set, sheet, startedAt);
+      setSave({ kind: 'saved', wrongCount });
     } catch (e) {
       setSave({ kind: 'failed', message: describeReadingError(e).replace(/^出题失败：/, '') });
     }
@@ -89,8 +103,8 @@ function Attempt({
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: p.bg }} edges={['top', 'bottom']}>
       <PracticeTopBar
-        title={meta.title}
-        onClose={leave}
+        title={redo ? `重做 · ${meta.title}` : meta.title}
+        onClose={exit}
         closeLabel="退出练习"
         testIDPrefix="reading"
         status={grade ? `答对 ${grade.score}/${total}` : `已答 ${done}/${total}`}
@@ -131,7 +145,9 @@ function Attempt({
             {save.kind === 'saving'
               ? '正在保存到练习记录…'
               : save.kind === 'saved'
-                ? '已保存到练习记录'
+                ? redo
+                  ? `已保存 · ${redoOutcomeText({ kind: 'objective', wrongCount: save.wrongCount })}`
+                  : '已保存到练习记录'
                 : save.kind === 'failed'
                   ? `练习记录没保存上：${save.message}`
                   : ''}
@@ -151,7 +167,7 @@ function Attempt({
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Button label="完成" size="md" onPress={leave} testID="reading-done" />
+              <Button label="完成" size="md" onPress={exit} testID="reading-done" />
             </View>
           </View>
         </View>
@@ -166,17 +182,25 @@ const PHASE_COPY = {
   unit: '篇',
 };
 
-function Session({ type }: { type: ReadingQuestionType }) {
-  const { phase, retry, restart } = useReadingSession(type);
+const REDO_COPY = {
+  ...PHASE_COPY,
+  preparingTitle: '正在打开原题…',
+  generating: '从题库里取出这道题，马上就好。',
+  errorTitle: '这道题打不开',
+  errorActions: 'stored' as const,
+};
+
+function Session({ type, redoId }: { type: ReadingQuestionType; redoId: string | null }) {
+  const { phase, retry, restart } = useReadingSession(type, redoId);
   if (phase.kind !== 'ready')
     return (
       <GenerationPhaseView
-        title={READING_TYPE_META[type].title}
+        title={redoId ? `重做 · ${READING_TYPE_META[type].title}` : READING_TYPE_META[type].title}
         phase={phase}
         retry={() => void retry()}
-        onClose={leave}
+        onClose={redoId ? leaveRedo : leave}
         testIDPrefix="reading"
-        copy={PHASE_COPY}
+        copy={redoId ? REDO_COPY : PHASE_COPY}
       />
     );
   // 换一套题（id 变了）时重新建答题卡
@@ -187,12 +211,13 @@ function Session({ type }: { type: ReadingQuestionType }) {
       skipped={phase.value.skipped.map((x) => x.error)}
       startedAt={phase.startedAt}
       onRestart={restart}
+      redo={Boolean(redoId)}
     />
   );
 }
 
 export default function ReadingAttemptScreen() {
-  const { type } = useLocalSearchParams<{ type: string }>();
+  const { type, redo } = useLocalSearchParams<{ type: string; redo?: string }>();
   if (!isReadingQuestionType(type))
     return (
       <Screen>
@@ -204,7 +229,7 @@ export default function ReadingAttemptScreen() {
         </View>
       </Screen>
     );
-  return <Session type={type} />;
+  return <Session type={type} redoId={typeof redo === 'string' && redo ? redo : null} />;
 }
 
 const styles = StyleSheet.create({

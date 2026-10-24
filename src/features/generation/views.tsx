@@ -125,6 +125,15 @@ export interface PhaseCopy {
   generating: string;
   /** 进度单位，如「篇」 */
   unit?: string;
+  /** 准备中的标题，默认「正在出题…」（错题本重做是「正在打开原题…」） */
+  preparingTitle?: string;
+  /** 失败页标题，默认「这次没出成题」 */
+  errorTitle?: string;
+  /**
+   * 失败页的按钮：generation（默认）是「重试」+「检查大模型设置」；
+   * stored 是错题本重做打不开原题，只给「返回」（重试也没用、和大模型无关）
+   */
+  errorActions?: 'generation' | 'stored';
 }
 
 /** 出题前后的几种状态（ready 以外） */
@@ -189,7 +198,7 @@ export function GenerationPhaseView<T>({
         >
           <ActivityIndicator size="large" color={p.primary} />
           <Txt variant="headline" style={styles.centerText}>
-            正在出题…
+            {copy.preparingTitle ?? '正在出题…'}
           </Txt>
           <Txt variant="callout" tone="secondary" style={styles.centerText}>
             {copy.generating}
@@ -213,7 +222,7 @@ export function GenerationPhaseView<T>({
       return page(
         <View testID={`${id}-error`} style={styles.stack}>
           <Txt variant="headline" style={styles.centerText}>
-            这次没出成题
+            {copy.errorTitle ?? '这次没出成题'}
           </Txt>
           <Txt
             variant="body"
@@ -224,15 +233,21 @@ export function GenerationPhaseView<T>({
           >
             {phase.message}
           </Txt>
-          <View style={{ marginTop: space.md, gap: space.md }}>
-            <Button label="重试" onPress={retry} testID={`${id}-retry-generate`} />
-            <Button
-              label="检查大模型设置"
-              kind="secondary"
-              size="md"
-              onPress={() => router.push('/settings')}
-            />
-          </View>
+          {copy.errorActions === 'stored' ? (
+            <View style={{ marginTop: space.md }}>
+              <Button label="返回" kind="secondary" onPress={onClose} testID={`${id}-error-back`} />
+            </View>
+          ) : (
+            <View style={{ marginTop: space.md, gap: space.md }}>
+              <Button label="重试" onPress={retry} testID={`${id}-retry-generate`} />
+              <Button
+                label="检查大模型设置"
+                kind="secondary"
+                size="md"
+                onPress={() => router.push('/settings')}
+              />
+            </View>
+          )}
         </View>,
       );
   }

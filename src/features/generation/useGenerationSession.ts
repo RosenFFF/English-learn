@@ -16,8 +16,16 @@ export type GenerationPhase<T> =
   | { kind: 'error'; message: string }
   | { kind: 'ready'; value: T; startedAt: number };
 
+export interface SessionOptions {
+  /** 先检查大模型配置（默认 true）。错题本重做阅读题用的是题库里的原题、本地判分，不需要大模型 */
+  checkLlm?: boolean;
+}
+
 /** start 为 null 时什么都不做（比如路由参数不合法） */
-export function useGenerationSession<T>(start: ((o: StartOptions) => Promise<T>) | null) {
+export function useGenerationSession<T>(
+  start: ((o: StartOptions) => Promise<T>) | null,
+  { checkLlm = true }: SessionOptions = {},
+) {
   const [phase, setPhase] = useState<GenerationPhase<T>>({ kind: 'checking' });
   const phaseRef = useRef(phase);
   useEffect(() => {
@@ -32,7 +40,7 @@ export function useGenerationSession<T>(start: ((o: StartOptions) => Promise<T>)
     ctrl.current = c;
     setPhase({ kind: 'checking' });
     try {
-      const status = await getGenerationLlmStatus();
+      const status = checkLlm ? await getGenerationLlmStatus() : ({ ready: true } as const);
       if (c.signal.aborted) return;
       if (!status.ready) {
         setPhase({
@@ -54,7 +62,7 @@ export function useGenerationSession<T>(start: ((o: StartOptions) => Promise<T>)
       if (c.signal.aborted || isAbort(e)) return;
       setPhase({ kind: 'error', message: describeGenerationError(e) });
     }
-  }, [start]);
+  }, [start, checkLlm]);
 
   // 第一次进来，以及从设置页填完回来时（之前是「未配置」）重新检查
   useFocusEffect(

@@ -22,6 +22,7 @@ import { uuidv4 } from '../../lib/uuid';
 import { readSelectedExam } from '../exam/service';
 import { describeGenerationError, LlmNotConfiguredError } from '../generation/llm';
 import {
+  loadStoredQuestion,
   prepareQuestions,
   type PrepareOptions,
   type SkippedQuestion,
@@ -30,6 +31,7 @@ import { getLlmConfig } from '../settings/service';
 import { notifyDataChanged } from '../shared';
 
 export { cet6PaperScore, type Cet6PaperScore } from '../../lib/exam/cet6-score';
+export { redoOutcomeText } from '../../lib/exam/mistakes';
 export {
   READING_QUESTION_TYPES,
   answeredCount,
@@ -152,6 +154,28 @@ export async function startReadingSet(
   return prepared;
 }
 
+/**
+ * 错题本重做：只做这一道原题（仔细阅读也只做这一篇），不重新出题、不需要大模型。
+ * 找不到 / 读不出来抛 StoredQuestionError（中文原因）。
+ */
+export async function prepareReadingRedo(
+  user: SqlDb,
+  type: ReadingQuestionType,
+  questionId: string,
+): Promise<PreparedReading> {
+  const part = await loadStoredQuestion(user, type, questionId);
+  return { set: { id: uuidv4(), type, parts: [part] } as unknown as ReadingSet, skipped: [] };
+}
+
+/** 页面用：错题本重做 */
+export async function startReadingRedo(
+  type: ReadingQuestionType,
+  questionId: string,
+): Promise<PreparedReading> {
+  const { user } = await getDatabases();
+  return prepareReadingRedo(user, type, questionId);
+}
+
 // ---------- 交卷 ----------
 
 /**
@@ -196,15 +220,19 @@ export async function saveReadingAttempts(
   return { rows, grades };
 }
 
-/** 页面用：交卷写记录 */
+/** 页面用：交卷写记录；返回每道题答错的题数（错题本重做据此提示移没移出） */
 export async function submitReadingSet(
   set: ReadingSet,
   sheet: AnswerSheet,
   startedAt: number,
-): Promise<void> {
+): Promise<{ wrongCount: number }> {
   const { user } = await getDatabases();
-  await saveReadingAttempts(user, set, sheet, { startedAt, submittedAt: Date.now() });
+  const { rows } = await saveReadingAttempts(user, set, sheet, {
+    startedAt,
+    submittedAt: Date.now(),
+  });
   notifyDataChanged();
+  return { wrongCount: rows.reduce((n, r) => n + r.wrong_count, 0) };
 }
 
 /** 一套题的答题卡（reducer 在 src/lib，纯函数可单测） */

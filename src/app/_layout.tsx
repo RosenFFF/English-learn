@@ -50,6 +50,10 @@ export default function RootLayout() {
             <Stack.Screen name="translation" options={{ headerShown: false, title: '翻译' }} />
             <Stack.Screen name="writing" options={{ headerShown: false, title: '写作' }} />
             <Stack.Screen
+              name="mistakes"
+              options={{ title: '错题本', headerTitle: '', headerStyle: { backgroundColor: p.bg } }}
+            />
+            <Stack.Screen
               name="section/[id]"
               options={{ headerTitle: '', headerStyle: { backgroundColor: p.bg } }}
             />
