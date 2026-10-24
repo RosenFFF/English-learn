@@ -9,10 +9,17 @@
  *   https://cet.neea.edu.cn/res/Home/1704/55b02330ac17274664f06d9d3db8249d.pdf
  *   同样的分值比例；并说明报道分经等值处理、参照常模转换（均值 500、标准差 70，220–710）。
  *
+ * 听力同一来源：长对话 8 题占 8%，听力篇章（短文）7 题占 7%，讲话 / 报道 / 讲座 10 题占 20%
+ * （长对话、短文每题 1 分，讲座每题 2 分）。
+ *
  * 所以这里只按分值比例折成「百分制整卷里的卷面分」（选词填空每题 0.5、长篇阅读每题 1、
  * 仔细阅读每题 2）。不换算成 710 分制的报道分：官方报道分不是卷面分的线性换算，算出来是编的。
  */
+import type { ListeningQuestionType } from './listening';
 import type { ReadingQuestionType } from './reading';
+
+/** 有大纲分值比例、可以折合卷面分的客观题型（阅读三种 + 听力三种） */
+export type Cet6ScoredType = ReadingQuestionType | ListeningQuestionType;
 
 export interface Cet6Weight {
   /** 这一题型占整卷的百分比 */
@@ -25,6 +32,17 @@ export const CET6_READING_WEIGHTS: Readonly<Record<ReadingQuestionType, Cet6Weig
   banked_cloze: { percent: 5, items: 10 },
   matching: { percent: 10, items: 10 },
   careful_reading: { percent: 20, items: 10 },
+};
+
+export const CET6_LISTENING_WEIGHTS: Readonly<Record<ListeningQuestionType, Cet6Weight>> = {
+  long_conversation: { percent: 8, items: 8 },
+  passage: { percent: 7, items: 7 },
+  lecture: { percent: 20, items: 10 },
+};
+
+const CET6_WEIGHTS: Readonly<Record<Cet6ScoredType, Cet6Weight>> = {
+  ...CET6_READING_WEIGHTS,
+  ...CET6_LISTENING_WEIGHTS,
 };
 
 export interface Cet6PaperScore {
@@ -46,11 +64,11 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
  * 每题分值 = 占比 / 官方题量，与这次实际出了几题无关。
  */
 export function cet6PaperScore(
-  type: ReadingQuestionType,
+  type: Cet6ScoredType,
   correct: number,
   total: number,
 ): Cet6PaperScore {
-  const w = CET6_READING_WEIGHTS[type];
+  const w = CET6_WEIGHTS[type];
   const perItem = w.percent / w.items;
   const t = Math.max(0, Math.floor(total));
   const c = Math.min(t, Math.max(0, Math.floor(correct)));

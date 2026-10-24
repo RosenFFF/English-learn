@@ -5,7 +5,17 @@
  */
 import { z } from 'zod';
 
-import { cleanText } from './sanitize';
+import {
+  LISTENING_SPEC,
+  scriptWordCount,
+  SCRIPT_SEGMENT_MAX_CHARS,
+  SPEAKER_GENDERS,
+  SPEAKER_ID_PATTERN,
+  SPEAKER_NAME_MAX,
+  type ListeningQuestionType,
+  type SpeakerGender,
+} from './listening';
+import { cleanSpeechText, cleanText, stripSpeakerPrefix } from './sanitize';
 import {
   CHOICE_LETTERS,
   SUBJECTIVE_MAX_SCORE,
@@ -17,8 +27,10 @@ import {
  * 题目 JSON 的结构版本，存进 question.schema_version；以后改结构时靠它兼容旧题。
  * v1：最初的结构，没有 topic。
  * v2：顶层增加 topic（简短英文话题）。新生成的题一定带 topic；读库时 v1 的题允许没有 topic。
+ * v3：听力三种题型把 transcript 换成角色表 roles + 分角色稿子 script（其它题型结构不变）。
+ *     读库时 v1、v2 的听力题按旧结构校验，再转成 v3 结构（legacyTranscriptToBody）。
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** topic 最长字符数（避开话题、存库都按这个上限） */
 export const TOPIC_MAX_LENGTH = 60;
@@ -169,10 +181,162 @@ export const essaySchema = z.object({
   explanation,
 });
 
-// ---------- 听力 ----------
+// ---------- 听力（schema v3：角色表 + 分角色稿子） ----------
+/** 朗读用的一段文字：清洗掉控制字符和不适合 TTS 的标记，单段长度有上限 */
+const speechText = z
+  .string()
+  .transform(cleanSpeechText)
+  .pipe(
+    z
+      .string()
+      .min(1, '不能为空')
+      .max(SCRIPT_SEGMENT_MAX_CHARS, `单段不能超过 ${SCRIPT_SEGMENT_MAX_CHARS} 个字符`),
+  );
+
+const speakerRole = z.object({
+  /** 角色 id，script[].speaker 引用它 */
+  id: z
+    .string()
+    .trim()
+    .regex(SPEAKER_ID_PATTERN, '角色 id 只能是字母开头的字母、数字、_ 或 -，最长 16 个字符'),
+  /** 称呼，如 "Woman"、"Professor Lee" */
+  name: z
+    .string()
+    .transform((s) => cleanText(s, { max: SPEAKER_NAME_MAX, multiline: false }))
+    .pipe(z.string().min(1, '不能为空')),
+  /** 给前端选音色用 */
+  gender: z.enum(SPEAKER_GENDERS),
+});
+
+const scriptSegment = z.object({ speaker: z.string().trim(), text: speechText });
+
+export type SpeakerRole = z.output<typeof speakerRole>;
+export type ScriptSegment = z.output<typeof scriptSegment>;
+/** 听力题（v3）主体：roles + script + questions */
+export interface ListeningBody {
+  roles: SpeakerRole[];
+  script: ScriptSegment[];
+  questions: ChoiceQuestion[];
+}
+
+function listeningSchema(type: ListeningQuestionType) {
+  const spec = LISTENING_SPEC[type];
+  const [qMin, qMax] = spec.questions;
+  const [sMin, sMax] = spec.segments;
+  const [wMin, wMax] = spec.words;
+  return z
+    .object({
+      roles: z.array(speakerRole).length(spec.roles, `必须 ${spec.roles} 个角色`),
+      script: z
+        .array(scriptSegment)
+        .min(sMin, `稿子至少 ${sMin} 段`)
+        .max(sMax, `稿子最多 ${sMax} 段`),
+      questions: z.array(choiceQuestion).min(qMin, `至少 ${qMin} 题`).max(qMax, `最多 ${qMax} 题`),
+    })
+    .transform((v): ListeningBody => {
+      // 模型偶尔会在段首重复写「W: 」这类说话人前缀，朗读时去掉
+      const labels = new Map(v.roles.map((r) => [r.id, [r.id, r.name]]));
+      return {
+        ...v,
+        script: v.script.map((s) => ({
+          ...s,
+          text: stripSpeakerPrefix(s.text, labels.get(s.speaker) ?? []),
+        })),
+      };
+    })
+    .superRefine((v, ctx) => {
+      checkDistinctOptions(v.questions, ctx);
+      const ids = v.roles.map((r) => r.id);
+      if (new Set(ids.map((i) => i.toLowerCase())).size !== ids.length)
+        ctx.addIssue({ code: 'custom', message: '角色 id 不能重复', path: ['roles'] });
+      if (spec.roles === 2 && v.roles.length === 2 && v.roles[0].gender === v.roles[1].gender)
+        ctx.addIssue({
+          code: 'custom',
+          message: '两个角色的 gender 必须一男一女，便于朗读时区分音色',
+          path: ['roles'],
+        });
+      const known = new Set(ids);
+      const spoken = new Set<string>();
+      v.script.forEach((s, i) => {
+        if (!known.has(s.speaker))
+          ctx.addIssue({
+            code: 'custom',
+            message: `speaker "${s.speaker}" 不在角色表里（可选：${ids.join('、')}）`,
+            path: ['script', i, 'speaker'],
+          });
+        spoken.add(s.speaker);
+        if (s.text === '')
+          ctx.addIssue({ code: 'custom', message: '不能为空', path: ['script', i, 'text'] });
+        if (HAN.test(s.text))
+          ctx.addIssue({
+            code: 'custom',
+            message: '稿子必须是英文，不能含中文',
+            path: ['script', i, 'text'],
+          });
+      });
+      ids.forEach((id, i) => {
+        if (known.size === ids.length && !spoken.has(id))
+          ctx.addIssue({ code: 'custom', message: `角色 ${id} 一句话也没说`, path: ['roles', i] });
+      });
+      const words = scriptWordCount(v.script);
+      if (words < wMin || words > wMax)
+        ctx.addIssue({
+          code: 'custom',
+          message: `稿子共 ${words} 个英文词，应在 ${wMin} 到 ${wMax} 之间`,
+          path: ['script'],
+        });
+    });
+}
+
+export const longConversationSchema = listeningSchema('long_conversation');
+export const passageSchema = listeningSchema('passage');
+export const lectureSchema = listeningSchema('lecture');
+
+// ---------- 听力旧结构（schema v1、v2：transcript，没有角色表） ----------
 const transcriptLine = z.object({ speaker: text, text });
 
-function listeningSchema(opts: { questions: [number, number]; minSpeakers: number }) {
+const FEMALE_HINT = /^(w|f|woman|female|girl|lady|ms\.?|mrs\.?|miss|madam)\b/i;
+const MALE_HINT = /^(m|man|male|boy|gentleman|mr\.?|sir)\b/i;
+
+/** 旧题的 transcript → v3 的 roles + script。gender 按称呼猜（W / Woman / Mrs. → female），猜不出时女、男交替 */
+export function legacyTranscriptToBody(v: {
+  transcript: { speaker: string; text: string }[];
+  questions: ChoiceQuestion[];
+}): ListeningBody {
+  const names: string[] = [];
+  for (const l of v.transcript) if (!names.includes(l.speaker)) names.push(l.speaker);
+  const used = new Set<string>();
+  let next: SpeakerGender = 'female';
+  const roles = names.map((name, i): SpeakerRole => {
+    let id = SPEAKER_ID_PATTERN.test(name) && !used.has(name.toLowerCase()) ? name : `S${i + 1}`;
+    while (used.has(id.toLowerCase())) id = `${id}_`;
+    used.add(id.toLowerCase());
+    let gender: SpeakerGender;
+    if (FEMALE_HINT.test(name)) gender = 'female';
+    else if (MALE_HINT.test(name)) gender = 'male';
+    else {
+      gender = next;
+      next = next === 'female' ? 'male' : 'female';
+    }
+    return { id, name: cleanText(name, { max: SPEAKER_NAME_MAX, multiline: false }) || id, gender };
+  });
+  const idOf = new Map(names.map((n, i) => [n, roles[i].id]));
+  return {
+    roles,
+    script: v.transcript.map((l) => ({
+      speaker: idOf.get(l.speaker)!,
+      text:
+        cleanSpeechText(l.text) ||
+        cleanText(l.text, { max: SCRIPT_SEGMENT_MAX_CHARS, multiline: false }),
+    })),
+    questions: v.questions,
+  };
+}
+
+function legacyListeningSchema(opts: {
+  questions: readonly [number, number];
+  minSpeakers: number;
+}) {
   const [min, max] = opts.questions;
   return z
     .object({
@@ -188,12 +352,16 @@ function listeningSchema(opts: { questions: [number, number]; minSpeakers: numbe
           message: `原文至少要有 ${opts.minSpeakers} 位说话人`,
           path: ['transcript'],
         });
-    });
+    })
+    .transform(legacyTranscriptToBody);
 }
 
-export const longConversationSchema = listeningSchema({ questions: [4, 4], minSpeakers: 2 });
-export const passageSchema = listeningSchema({ questions: [3, 4], minSpeakers: 1 });
-export const lectureSchema = listeningSchema({ questions: [3, 4], minSpeakers: 1 });
+/** 旧结构的听力题（只用于读 v1、v2 存库的题，读出后转成 v3 结构） */
+export const LEGACY_LISTENING_SCHEMAS = {
+  long_conversation: legacyListeningSchema({ questions: [4, 4], minSpeakers: 2 }),
+  passage: legacyListeningSchema({ questions: [3, 4], minSpeakers: 1 }),
+  lecture: legacyListeningSchema({ questions: [3, 4], minSpeakers: 1 }),
+} as const satisfies Record<ListeningQuestionType, z.ZodType>;
 
 // ---------- 话题 topic（schema v2） ----------
 /** 简短英文话题，如 "urban gardening"；单行、不含控制字符 */
@@ -218,8 +386,12 @@ const withTopic = <S extends z.ZodType>(s: S) => z.object({ topic: topicSchema }
 const withOptionalTopic = <S extends z.ZodType>(s: S) =>
   z.object({ topic: topicSchema.optional() }).and(s);
 
+/** 读题用的听力 schema：v3 结构，或 v1/v2 的 transcript 旧结构（读出后转成 v3 结构） */
+const listeningPayload = <T extends ListeningQuestionType>(t: T) =>
+  z.union([withOptionalTopic(BODY_SCHEMAS[t]), withOptionalTopic(LEGACY_LISTENING_SCHEMAS[t])]);
+
 /**
- * 读题用（兼容 v1、v2）：topic 可选。读库、导入、判分都用这一套。
+ * 读题用（兼容 v1、v2、v3）：topic 可选；听力题新旧两种结构都接受。读库、导入、判分都用这一套。
  * 新生成的题用 GENERATION_SCHEMAS，topic 必填。
  */
 export const PAYLOAD_SCHEMAS = {
@@ -228,12 +400,12 @@ export const PAYLOAD_SCHEMAS = {
   careful_reading: withOptionalTopic(BODY_SCHEMAS.careful_reading),
   translation: withOptionalTopic(BODY_SCHEMAS.translation),
   essay: withOptionalTopic(BODY_SCHEMAS.essay),
-  long_conversation: withOptionalTopic(BODY_SCHEMAS.long_conversation),
-  passage: withOptionalTopic(BODY_SCHEMAS.passage),
-  lecture: withOptionalTopic(BODY_SCHEMAS.lecture),
+  long_conversation: listeningPayload('long_conversation'),
+  passage: listeningPayload('passage'),
+  lecture: listeningPayload('lecture'),
 } as const satisfies Record<QuestionType, z.ZodType>;
 
-/** 生成新题用（schema v2）：topic 必填 */
+/** 生成新题用（当前 SCHEMA_VERSION）：topic 必填；听力题必须是 v3 结构 */
 export const GENERATION_SCHEMAS = {
   banked_cloze: withTopic(BODY_SCHEMAS.banked_cloze),
   matching: withTopic(BODY_SCHEMAS.matching),
@@ -253,7 +425,7 @@ export type MatchingPayload = Stored<z.infer<typeof matchingSchema>>;
 export type CarefulReadingPayload = Stored<z.infer<typeof carefulReadingSchema>>;
 export type TranslationPayload = Stored<z.infer<typeof translationSchema>>;
 export type EssayPayload = Stored<z.infer<typeof essaySchema>>;
-export type ListeningPayload = Stored<z.infer<typeof longConversationSchema>>;
+export type ListeningPayload = Stored<ListeningBody>;
 export type ChoiceQuestion = z.infer<typeof choiceQuestion>;
 
 /** 读出来的 payload（topic 可选） */
@@ -489,10 +661,23 @@ export function parsePayload<T extends QuestionType>(
 export type StoredPayloadResult<T extends QuestionType> =
   { ok: true; payload: PayloadOf<T> } | { ok: false; error: string };
 
+const isListening = (t: QuestionType): t is ListeningQuestionType =>
+  t === 'long_conversation' || t === 'passage' || t === 'lecture';
+
+/** 某个 schema_version 的存库题用哪个 schema 读 */
+function storedSchema(type: QuestionType, schemaVersion: number): z.ZodType {
+  if (isListening(type) && schemaVersion < 3) {
+    const legacy = LEGACY_LISTENING_SCHEMAS[type];
+    return schemaVersion >= 2 ? withTopic(legacy) : withOptionalTopic(legacy);
+  }
+  return (schemaVersion >= 2 ? GENERATION_SCHEMAS : PAYLOAD_SCHEMAS)[type];
+}
+
 /**
  * 解析存库的题（question 表的 type、schema_version、payload 三列）。
  * - schema_version 1：topic 可选（老题没有）
  * - schema_version 2：topic 必填
+ * - 听力题 schema_version 1、2 是 transcript 旧结构，读出后转成 v3 的 roles + script；3 起是新结构
  * - 比 SCHEMA_VERSION 新、不是正整数、payload 不是 JSON 或校验不过：返回 ok: false 和中文原因
  */
 export function parseStoredPayload<T extends QuestionType>(
@@ -510,9 +695,7 @@ export function parseStoredPayload<T extends QuestionType>(
   } catch {
     return { ok: false, error: '题目内容不是有效的 JSON' };
   }
-  const schema = (schemaVersion >= 2 ? GENERATION_SCHEMAS : PAYLOAD_SCHEMAS)[
-    type
-  ] as unknown as z.ZodType<PayloadOf<T>>;
+  const schema = storedSchema(type, schemaVersion) as unknown as z.ZodType<PayloadOf<T>>;
   const r = schema.safeParse(data);
   return r.success
     ? { ok: true, payload: r.data }

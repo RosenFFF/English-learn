@@ -30,7 +30,11 @@ import {
 import { getLlmConfig } from '../settings/service';
 import { notifyDataChanged } from '../shared';
 
-export { cet6PaperScore, type Cet6PaperScore } from '../../lib/exam/cet6-score';
+export {
+  cet6PaperScore,
+  type Cet6PaperScore,
+  type Cet6ScoredType,
+} from '../../lib/exam/cet6-score';
 export { redoOutcomeText } from '../../lib/exam/mistakes';
 export {
   READING_QUESTION_TYPES,

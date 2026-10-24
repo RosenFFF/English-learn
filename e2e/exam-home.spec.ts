@@ -39,11 +39,10 @@ test('首次启动选考试 → 六级首页 → 词汇 → 背词', async ({ pa
   await expect(page.getByTestId('home-vocab-review')).toHaveText('待复习 0');
   await page.screenshot({ path: `${SHOTS}/02-cet6-home.png` });
 
-  // 未上线板块：占位页说明这个板块练什么，返回首页
+  // 听力已上线：卡片进听力页；/section/listening 也会重定向过去
   await page.getByTestId('section-listening').click();
-  await expect(page).toHaveURL(/\/section\/listening$/);
-  await expect(page.getByTestId('section-page-listening')).toContainText('长对话');
-  await page.getByTestId('section-back').click();
+  await expect(page).toHaveURL(/\/listening$/);
+  await page.goBack();
   await expect(page).toHaveURL(/\/home$/);
 
   // 词汇 → 背一张
@@ -59,6 +58,12 @@ test('首次启动选考试 → 六级首页 → 词汇 → 背词', async ({ pa
   await page.getByTestId('close').click();
   await expect(page).toHaveURL(/\/vocab$/);
   await expect(page.getByTestId('today-new')).toContainText('19');
+
+  // 六个板块都上线了，没有占位板块：白名单仍然生效，不认识的 id 显示找不到页面
+  await page.goto('/section/speaking');
+  await expect(page.getByTestId('section-not-found')).toBeVisible({ timeout: 60_000 });
+  await page.goto('/section/listening');
+  await expect(page).toHaveURL(/\/listening$/, { timeout: 60_000 });
 
   // 刷新后不再出现选考试页，直接进首页
   await page.goto('/');

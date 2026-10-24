@@ -135,7 +135,7 @@ function Empty() {
         现在没有要重做的题
       </Txt>
       <Txt variant="body" tone="secondary" style={styles.center}>
-        {`阅读里答错的题、翻译和写作低于 ${REDO_THRESHOLD} 分的题会自动收进这里；重做通过就会移出。`}
+        {`阅读、听力里答错的题，翻译和写作低于 ${REDO_THRESHOLD} 分的题会自动收进这里；重做通过就会移出。`}
       </Txt>
       <View style={styles.emptyBtns}>
         <Button

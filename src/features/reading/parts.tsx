@@ -15,12 +15,7 @@ import {
 
 import { Card, PressableScale, Txt } from '../../ui/primitives';
 import { radius, space, usePalette, type Palette } from '../../ui/theme';
-import {
-  cet6PaperScore,
-  type AnswerValue,
-  type GradeResult,
-  type ReadingQuestionType,
-} from './service';
+import { cet6PaperScore, type AnswerValue, type Cet6ScoredType, type GradeResult } from './service';
 
 /**
  * 超长单词（没有断点）在网页上不会自动断开，会撑出容器；原生端本来就会按字符断。
@@ -184,8 +179,17 @@ export function Verdict({
   );
 }
 
-/** 得分卡：答对数 / 总数，以及按六级大纲分值比例折合的卷面分 */
-export function ScoreCard({ grade, type }: { grade: GradeResult; type: ReadingQuestionType }) {
+/** 得分卡：答对数 / 总数，以及按六级大纲分值比例折合的卷面分（阅读、听力共用） */
+export function ScoreCard({
+  grade,
+  type,
+  testIDPrefix = 'reading',
+}: {
+  grade: GradeResult;
+  type: Cet6ScoredType;
+  /** testID：`${p}-score`、`${p}-cet6` */
+  testIDPrefix?: string;
+}) {
   const p = usePalette();
   const ratio = grade.maxScore ? grade.score / grade.maxScore : 0;
   const color = ratio >= 0.8 ? p.success : ratio >= 0.6 ? p.rating.hard : p.danger;
@@ -201,7 +205,7 @@ export function ScoreCard({ grade, type }: { grade: GradeResult; type: ReadingQu
           <Txt
             variant="display"
             style={{ color, fontVariant: ['tabular-nums'] }}
-            testID="reading-score"
+            testID={`${testIDPrefix}-score`}
           >
             {grade.score}
             <Txt variant="headline" tone="tertiary">
@@ -213,7 +217,7 @@ export function ScoreCard({ grade, type }: { grade: GradeResult; type: ReadingQu
           {grade.unanswered > 0 ? `错 ${wrong} 题，没答 ${grade.unanswered} 题` : `错 ${wrong} 题`}
         </Txt>
       </View>
-      <View style={[styles.paper, { borderColor: p.border }]} testID="reading-cet6">
+      <View style={[styles.paper, { borderColor: p.border }]} testID={`${testIDPrefix}-cet6`}>
         <Txt variant="callout" style={{ fontVariant: ['tabular-nums'] }}>
           {`六级卷面折合 ${paper.points} / ${paper.maxPoints} 分`}
         </Txt>

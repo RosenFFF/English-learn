@@ -67,3 +67,40 @@ export function promptText(input: unknown, max: number): string {
     (_m, slash: string, name: string) => `‹${slash}${name.toLowerCase()}›`,
   );
 }
+
+/** Markdown / HTML / 舞台说明等不适合 TTS 朗读的标记 */
+const HTML_TAG = /<[^>]{0,200}>/g;
+const STAGE_DIRECTION =
+  /\[[^\]\n]{0,80}\]|\((?:pause|laughs?|laughing|sighs?|music|applause|inaudible|coughs?)[^)\n]{0,40}\)/giu;
+const MARKDOWN_MARKS = /[*_#`~|]+/g;
+const PICTOGRAPHIC =
+  /(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|\uFE0F)+/gu;
+
+/**
+ * 给 TTS 朗读的文字：cleanText（单行）之后再去掉 HTML 标签、[舞台说明] 和 (pause) 之类的括注、
+ * Markdown 符号、emoji，最后合并空白。
+ * 不截断（稿子长度由 schema 校验，超长算不合格，不能悄悄截掉影响答案）。
+ */
+export function cleanSpeechText(input: unknown): string {
+  return cleanText(input, { max: Number.MAX_SAFE_INTEGER, multiline: false })
+    .replace(HTML_TAG, ' ')
+    .replace(STAGE_DIRECTION, ' ')
+    .replace(MARKDOWN_MARKS, ' ')
+    .replace(PICTOGRAPHIC, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .trim();
+}
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * 去掉模型误加在开头的说话人前缀，如 "W: Hi" → "Hi"、"Professor Lee: Today…" → "Today…"。
+ * 只认传入的称呼 / id（不区分大小写），不会误删 "Remember: …" 这类正常句子。
+ */
+export function stripSpeakerPrefix(text: string, labels: readonly string[]): string {
+  const names = labels.map((l) => l.trim()).filter(Boolean);
+  if (names.length === 0) return text;
+  const re = new RegExp(`^(?:${names.map(escapeRe).join('|')})\\s*[:：]\\s*`, 'iu');
+  return text.replace(re, '').trim();
+}
