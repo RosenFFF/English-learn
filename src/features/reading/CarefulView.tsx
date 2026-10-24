@@ -48,22 +48,25 @@ export function CarefulView({
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={styles.switchBar}>
-        <View style={styles.switchInner}>
-          <Segmented
-            options={set.parts.map((_, i) => i)}
-            value={current}
-            onChange={setCurrent}
-            label="切换文章"
-            tall
-            format={(i) =>
-              grade
-                ? (names[i] ?? '')
-                : `${names[i]} ${doneIn(i)}/${set.parts[i]?.payload.questions.length ?? 0}`
-            }
-          />
+      {/* 错题本重做只有一篇，不用切换 */}
+      {set.parts.length > 1 ? (
+        <View style={styles.switchBar}>
+          <View style={styles.switchInner}>
+            <Segmented
+              options={set.parts.map((_, i) => i)}
+              value={current}
+              onChange={setCurrent}
+              label="切换文章"
+              tall
+              format={(i) =>
+                grade
+                  ? (names[i] ?? '')
+                  : `${names[i]} ${doneIn(i)}/${set.parts[i]?.payload.questions.length ?? 0}`
+              }
+            />
+          </View>
         </View>
-      </View>
+      ) : null}
       {set.parts.map((part, pi) => (
         <ResetScroll
           key={part.id}

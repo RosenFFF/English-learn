@@ -29,8 +29,10 @@ import {
   countHan,
   countWords,
   lengthHint,
+  redoOutcomeText,
   saveDraft,
   startSubjective,
+  startSubjectiveRedo,
   submitCheck,
   submitSubjective,
   verdictText,
@@ -43,6 +45,12 @@ import {
 function leave(): void {
   if (router.canGoBack()) router.back();
   else router.replace('/home');
+}
+
+/** 错题本重做：没有上一页时回错题本 */
+function leaveRedo(): void {
+  if (router.canGoBack()) router.back();
+  else router.replace('/mistakes');
 }
 
 /** 路由用的 testID 前缀：写作的板块 id 是 writing */
@@ -60,16 +68,21 @@ function Composer({
   prepared,
   startedAt: sessionStart,
   onNext,
+  redo,
 }: {
   prepared: PreparedSubjective;
   startedAt: number;
   onNext: () => void;
+  /** 从错题本进来重做这道原题：草稿存 redo 槽，结果页提示移没移出，没有「再来一题」 */
+  redo: boolean;
 }) {
   const p = usePalette();
   const { question, draft, skipped } = prepared;
   const type = question.type;
   const id = PREFIX[type];
   const meta = SUBJECTIVE_META[type];
+  const slot = redo ? 'redo' : 'practice';
+  const exit = redo ? leaveRedo : leave;
   const hint = useMemo(
     () => lengthHint(question.type, question.payload),
     [question.type, question.payload],
@@ -95,19 +108,18 @@ function Composer({
       if (value === lastSaved.current) return;
       setDraftState('saving');
       try {
-        await saveDraft(type, {
-          questionId: question.id,
-          text: value,
-          startedAt,
-          savedAt: Date.now(),
-        });
+        await saveDraft(
+          type,
+          { questionId: question.id, text: value, startedAt, savedAt: Date.now() },
+          slot,
+        );
         lastSaved.current = value;
         setDraftState('saved');
       } catch {
         setDraftState('failed');
       }
     },
-    [type, question.id, startedAt],
+    [type, question.id, startedAt, slot],
   );
   useEffect(() => {
     if (stage.kind !== 'writing') return;
@@ -118,14 +130,13 @@ function Composer({
     () => () => {
       const l = latest.current;
       if (l.writing && l.text !== lastSaved.current)
-        void saveDraft(type, {
-          questionId: question.id,
-          text: l.text,
-          startedAt,
-          savedAt: Date.now(),
-        });
+        void saveDraft(
+          type,
+          { questionId: question.id, text: l.text, startedAt, savedAt: Date.now() },
+          slot,
+        );
     },
-    [type, question.id, startedAt],
+    [type, question.id, startedAt, slot],
   );
 
   // ---------- 交卷评分 ----------
@@ -138,13 +149,13 @@ function Composer({
     setStage({ kind: 'grading' });
     try {
       await persist(text); // 先把草稿存上，评分失败也不丢
-      const view = await submitSubjective(question, text, startedAt, c.signal);
+      const view = await submitSubjective(question, text, startedAt, c.signal, slot);
       if (!c.signal.aborted) setStage({ kind: 'graded', view });
     } catch (e) {
       if (c.signal.aborted || isAbort(e)) return;
       setStage({ kind: 'gradeError', message: describeGenerationError(e, '评分') });
     }
-  }, [persist, question, text, startedAt]);
+  }, [persist, question, text, startedAt, slot]);
 
   const submit = async () => {
     const check = submitCheck(text, hint);
@@ -165,8 +176,8 @@ function Composer({
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: p.bg }} edges={['top', 'bottom']}>
       <PracticeTopBar
-        title={meta.title}
-        onClose={leave}
+        title={redo ? `重做 · ${meta.title}` : meta.title}
+        onClose={exit}
         closeLabel={stage.kind === 'writing' ? '退出（草稿已自动保存）' : '返回'}
         testIDPrefix={id}
         status={status}
@@ -305,14 +316,23 @@ function Composer({
           </ScrollView>
           <View style={[practiceStyles.footer, { borderColor: p.border, backgroundColor: p.bg }]}>
             <Txt variant="caption" tone="tertiary" style={styles.saveNote} testID={`${id}-saved`}>
-              已保存到练习记录
+              {redo
+                ? `已保存 · ${redoOutcomeText({ kind: 'subjective', score: stage.view.score })}`
+                : '已保存到练习记录'}
             </Txt>
             <View style={practiceStyles.footerInner}>
+              {redo ? null : (
+                <View style={{ flex: 1 }}>
+                  <Button
+                    label="再来一题"
+                    kind="secondary"
+                    onPress={onNext}
+                    testID={`${id}-next`}
+                  />
+                </View>
+              )}
               <View style={{ flex: 1 }}>
-                <Button label="再来一题" kind="secondary" onPress={onNext} testID={`${id}-next`} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Button label="完成" onPress={leave} testID={`${id}-done`} />
+                <Button label="完成" onPress={exit} testID={`${id}-done`} />
               </View>
             </View>
           </View>
@@ -540,19 +560,39 @@ const LEVEL_FG = (p: Palette): Record<DimensionItem['level'], string> => ({
   weak: p.danger,
 });
 
-export function SubjectiveScreen({ type }: { type: SubjectiveType }) {
-  const start = useCallback((o: StartOptions) => startSubjective(type, o), [type]);
+/** redoId：错题本重做这道原题（不出题；评分仍要大模型，所以照样先检查配置） */
+export function SubjectiveScreen({
+  type,
+  redoId = null,
+}: {
+  type: SubjectiveType;
+  redoId?: string | null;
+}) {
+  const start = useCallback(
+    (o: StartOptions) => (redoId ? startSubjectiveRedo(type, redoId) : startSubjective(type, o)),
+    [type, redoId],
+  );
   const { phase, retry } = useGenerationSession(start);
   const meta = SUBJECTIVE_META[type];
   if (phase.kind !== 'ready')
     return (
       <GenerationPhaseView
-        title={meta.title}
+        title={redoId ? `重做 · ${meta.title}` : meta.title}
         phase={phase}
         retry={() => void retry()}
-        onClose={leave}
+        onClose={redoId ? leaveRedo : leave}
         testIDPrefix={PREFIX[type]}
-        copy={{ unconfigured: meta.unconfigured, generating: meta.generating }}
+        copy={
+          redoId
+            ? {
+                unconfigured: '重做的题目来自题库，评分要用你配置的大模型。',
+                generating: '从题库里取出这道题，马上就好。',
+                preparingTitle: '正在打开原题…',
+                errorTitle: '这道题打不开',
+                errorActions: 'stored',
+              }
+            : { unconfigured: meta.unconfigured, generating: meta.generating }
+        }
       />
     );
   return (
@@ -561,6 +601,7 @@ export function SubjectiveScreen({ type }: { type: SubjectiveType }) {
       prepared={phase.value}
       startedAt={phase.startedAt}
       onNext={() => void retry()}
+      redo={Boolean(redoId)}
     />
   );
 }

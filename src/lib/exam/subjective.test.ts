@@ -89,6 +89,8 @@ describe('草稿', () => {
     expect(parseDraft(JSON.stringify({ ...d, questionId: '' }))).toBeNull();
     expect(parseDraft(JSON.stringify({ ...d, text: 3 }))).toBeNull();
     expect(draftKey('essay')).toBe('draft_essay');
+    expect(draftKey('essay', 'practice')).toBe('draft_essay');
+    expect(draftKey('translation', 'redo')).toBe('draft_redo_translation');
   });
 });
 

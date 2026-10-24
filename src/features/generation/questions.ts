@@ -16,6 +16,7 @@ import { QUESTION_SECTION, type QuestionRow, type QuestionType } from '../../lib
 import type { ExamId } from '../../lib/exams';
 import { uuidv4 } from '../../lib/uuid';
 import { readSelectedExam } from '../exam/service';
+import { StoredQuestionError } from './llm';
 
 export interface StoredQuestion<T extends QuestionType> {
   id: string;
@@ -124,4 +125,20 @@ export async function prepareQuestions<T extends QuestionType>(
     parts.push(...fresh);
   }
   return { exam, parts, skipped };
+}
+
+/**
+ * 错题本重做：按 id 取题库里的原题（不重新出题）。软删除的题也能取。
+ * 找不到、题型不对、读不出来（版本太新、内容损坏）都抛 StoredQuestionError（中文原因）。
+ */
+export async function loadStoredQuestion<T extends QuestionType>(
+  user: SqlDb,
+  type: T,
+  id: string,
+): Promise<StoredQuestion<T>> {
+  const row = await getQuestion(user, id);
+  if (!row || row.type !== type) throw new StoredQuestionError('找不到这道题，可能已经被清除了');
+  const r = parseRow(type, row);
+  if ('error' in r) throw new StoredQuestionError(`这道题读不出来，没法重做：${r.error}`);
+  return r;
 }

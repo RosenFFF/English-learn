@@ -35,9 +35,22 @@ export class LlmNotConfiguredError extends Error {
   }
 }
 
+/** 错题本重做：题库里的原题找不到或读不出来（message 是给用户看的中文） */
+export class StoredQuestionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StoredQuestionError';
+  }
+}
+
 /** 出题 / 评分失败时给用户看的中文说明；what 是「出题」「评分」 */
 export function describeGenerationError(e: unknown, what = '出题'): string {
-  if (e instanceof ExamGenError || e instanceof LlmNotConfiguredError) return e.message;
+  if (
+    e instanceof ExamGenError ||
+    e instanceof LlmNotConfiguredError ||
+    e instanceof StoredQuestionError
+  )
+    return e.message;
   if (e instanceof LlmError) return `${what}失败：${describeLlmError(e)}`;
   return `${what}失败：${e instanceof Error ? e.message : String(e)}`;
 }

@@ -126,8 +126,13 @@ export function parseDraft(raw: string | null): SubjectiveDraft | null {
   return { questionId: d.questionId, text: d.text, startedAt: d.startedAt, savedAt: d.savedAt };
 }
 
-export function draftKey(type: SubjectiveType): string {
-  return `draft_${type}`;
+/**
+ * 草稿存在 kv 里的键。错题本重做用单独的键（draft_redo_*），
+ * 不会覆盖或清掉正常练习里写了一半的那篇。
+ */
+export type DraftSlot = 'practice' | 'redo';
+export function draftKey(type: SubjectiveType, slot: DraftSlot = 'practice'): string {
+  return slot === 'redo' ? `draft_redo_${type}` : `draft_${type}`;
 }
 
 // ---------- 结果页（评分字段的对接只在这一段） ----------

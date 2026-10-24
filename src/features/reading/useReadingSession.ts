@@ -2,15 +2,21 @@
 import { useCallback } from 'react';
 
 import { useGenerationSession, type GenerationPhase } from '../generation/useGenerationSession';
-import { startReadingSet, type PreparedReading, type ReadingQuestionType } from './service';
+import {
+  startReadingRedo,
+  startReadingSet,
+  type PreparedReading,
+  type ReadingQuestionType,
+} from './service';
 
 export type ReadingPhase = GenerationPhase<PreparedReading>;
 
-export function useReadingSession(type: ReadingQuestionType | null) {
+/** redoId：错题本重做这道原题（不出题、不需要大模型） */
+export function useReadingSession(type: ReadingQuestionType | null, redoId: string | null = null) {
   const start = useCallback(
     (o: { signal: AbortSignal; onProgress: (done: number, total: number) => void }) =>
-      startReadingSet(type!, o),
-    [type],
+      redoId ? startReadingRedo(type!, redoId) : startReadingSet(type!, o),
+    [type, redoId],
   );
-  return useGenerationSession(type ? start : null);
+  return useGenerationSession(type ? start : null, { checkLlm: !redoId });
 }
