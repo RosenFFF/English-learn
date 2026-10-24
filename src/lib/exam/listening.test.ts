@@ -7,6 +7,8 @@ import {
   isListeningSectionType,
   LISTENING_QUESTION_TYPES,
   LISTENING_SPEC,
+  NARRATOR_ROLE,
+  questionPrefix,
   SCRIPT_SEGMENT_MAX_CHARS,
   scriptWordCount,
   toSpeechQueue,
@@ -215,20 +217,76 @@ describe('v3 schema：选择题', () => {
 });
 
 describe('toSpeechQueue', () => {
-  it('按稿子顺序展开，带角色称呼和 gender', () => {
+  const parsed = () => {
     const p = gen('long_conversation', VALID_PAYLOADS.long_conversation);
     if (!p.success) throw new Error('fixture 不合格');
-    const q = toSpeechQueue(p.data);
-    expect(q).toHaveLength(8);
+    return p.data;
+  };
+
+  it('默认：先按稿子顺序念原文（带角色称呼和 gender），再由旁白按顺序念题', () => {
+    const data = parsed();
+    const q = toSpeechQueue(data);
+    expect(q).toHaveLength(8 + 4);
     expect(q[0]).toEqual({
+      kind: 'script',
       speaker: 'W',
       name: 'Woman',
       gender: 'female',
-      text: p.data.script[0].text,
+      text: data.script[0].text,
     });
-    expect(q[1]).toMatchObject({ speaker: 'M', name: 'Man', gender: 'male' });
+    expect(q[1]).toMatchObject({ kind: 'script', speaker: 'M', name: 'Man', gender: 'male' });
+    expect(q.slice(0, 8).every((x) => x.kind === 'script')).toBe(true);
+    const questions = q.slice(8);
+    expect(questions.map((x) => x.kind)).toEqual(['question', 'question', 'question', 'question']);
+    expect(questions.map((x) => (x.kind === 'question' ? x.questionIndex : -1))).toEqual([
+      0, 1, 2, 3,
+    ]);
+    expect(questions[0]).toEqual({
+      kind: 'question',
+      questionIndex: 0,
+      speaker: NARRATOR_ROLE.id,
+      name: NARRATOR_ROLE.name,
+      gender: NARRATOR_ROLE.gender,
+      text: `Question 1. ${data.questions[0].stem}`,
+    });
+    expect(questions[3].text).toBe(`Question 4. ${data.questions[3].stem}`);
   });
-  it('角色表里没有的 speaker 跳过', () => {
+
+  it('念题只念题干，不念任何选项', () => {
+    const data = parsed();
+    const text = toSpeechQueue(data)
+      .filter((x) => x.kind === 'question')
+      .map((x) => x.text)
+      .join('\n');
+    for (const opt of data.questions.flatMap((x) => x.options)) expect(text).not.toContain(opt);
+  });
+
+  it('readQuestions: false 时只念原文', () => {
+    const data = parsed();
+    const q = toSpeechQueue(data, { readQuestions: false });
+    expect(q).toHaveLength(8);
+    expect(q.every((x) => x.kind === 'script')).toBe(true);
+    expect(toSpeechQueue(data, { readQuestions: true })).toHaveLength(12);
+  });
+
+  it('题干同样经过 cleanSpeechText；清洗后为空只念前缀', () => {
+    const q = toSpeechQueue({
+      roles: [{ id: 'N', name: 'Narrator', gender: 'male' }],
+      script: [{ speaker: 'N', text: 'One.' }],
+      questions: [{ stem: '**What** is [pause] the\u200b main idea?' }, { stem: '[music]' }],
+    });
+    expect(q.slice(1).map((x) => x.text)).toEqual([
+      'Question 1. What is the main idea?',
+      'Question 2.',
+    ]);
+    expect(questionPrefix(9)).toBe('Question 10.');
+  });
+
+  it('旁白角色是固定常量', () => {
+    expect(NARRATOR_ROLE).toEqual({ id: 'narrator', name: 'Narrator', gender: 'female' });
+  });
+
+  it('角色表里没有的 speaker 跳过；没有 questions 时只有原文', () => {
     const payload: Pick<ListeningPayload, 'roles' | 'script'> = {
       roles: [{ id: 'N', name: 'Narrator', gender: 'male' }],
       script: [
@@ -237,7 +295,7 @@ describe('toSpeechQueue', () => {
       ],
     };
     expect(toSpeechQueue(payload)).toEqual([
-      { speaker: 'N', name: 'Narrator', gender: 'male', text: 'One.' },
+      { kind: 'script', speaker: 'N', name: 'Narrator', gender: 'male', text: 'One.' },
     ]);
   });
 });
@@ -260,7 +318,10 @@ describe('旧题兼容（schema v1、v2 的 transcript 结构）', () => {
       { speaker: 'W', text: 'Hi, how was the trip?' },
       { speaker: 'M', text: 'Great, thanks.' },
     ]);
-    expect(toSpeechQueue(r.payload).map((x) => x.gender)).toEqual(['female', 'male']);
+    expect(toSpeechQueue(r.payload, { readQuestions: false }).map((x) => x.gender)).toEqual([
+      'female',
+      'male',
+    ]);
   });
   it('v1 短文没有 topic 也能读；猜不出性别的默认 female', () => {
     const { topic: _t, ...old } = LEGACY_LISTENING_PAYLOADS.passage;
@@ -367,7 +428,7 @@ describe('生成：prompt 与 generateQuestion', () => {
       model: 'm',
     });
     expect(SCHEMA_VERSION).toBe(3);
-    expect(toSpeechQueue(q.payload)).toHaveLength(2);
+    expect(toSpeechQueue(q.payload)).toHaveLength(2 + 3);
   });
 
   it('模型一直给旧结构（transcript）：重试用完抛 ExamGenError', async () => {
