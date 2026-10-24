@@ -82,7 +82,7 @@ function SectionCard({
     section.id === 'vocab' && data?.book
       ? `，待复习 ${data.reviewToDo} 个，新词 ${data.newToDo} 个`
       : section.id === 'reading'
-        ? '，3 种题型，示例题'
+        ? '，3 种题型，大模型出题'
         : '';
   return (
     <PressableScale
@@ -118,7 +118,7 @@ function SectionCard({
           <VocabStatus data={today} />
         ) : section.id === 'reading' ? (
           <Txt variant="caption" tone="secondary">
-            3 种题型 · 示例题
+            3 种题型 · 大模型出题
           </Txt>
         ) : null
       ) : (

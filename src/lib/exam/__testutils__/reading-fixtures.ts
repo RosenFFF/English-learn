@@ -3,7 +3,7 @@
  * 形状就是 schemas.ts 的 payload，单测里用 parsePayload 校验。
  */
 import { letterOf, type ReadingQuestionType, type ReadingSet } from '../reading';
-import type { BankedClozePayload, CarefulReadingPayload, MatchingPayload } from '../schemas';
+import type { GeneratedPayloadOf } from '../schemas';
 import type { ChoiceLetter } from '../types';
 
 // ---------- 选词填空 ----------
@@ -41,7 +41,8 @@ const CLOZE_KEY: [string, string][] = [
 ];
 
 /** 选词填空（没有标题，答案是候选词下标） */
-export const DEMO_BANKED_CLOZE: BankedClozePayload = {
+export const DEMO_BANKED_CLOZE: GeneratedPayloadOf<'banked_cloze'> = {
+  topic: 'rooftop gardens in cities',
   passage:
     'In many crowded cities, rooftops have long been treated as wasted space, covered with gravel and forgotten machinery. Over the past decade, however, a growing number of residents have begun to {{1}} these flat surfaces into small gardens. The trend is not merely decorative. Plants on a roof take in heat that would otherwise be {{2}} by concrete, which can cool the rooms below by several degrees in summer. They also slow the flow of rainwater, reducing the {{3}} on drainage systems during heavy storms.\n\n' +
     'Supporters argue that rooftop gardens offer social benefits as well. Neighbours who once {{4}} knew each other’s names now meet to share seeds and tools, and some buildings have formed committees to {{5}} the work. For elderly residents in particular, a garden can provide a {{6}} reason to leave the apartment and spend time outdoors.\n\n' +
@@ -123,7 +124,8 @@ const NIGHT_TRAIN_STATEMENTS: [string, number, string][] = [
 ];
 
 /** 长篇阅读（段落匹配） */
-export const DEMO_MATCHING: MatchingPayload = {
+export const DEMO_MATCHING: GeneratedPayloadOf<'matching'> = {
+  topic: 'the revival of night trains',
   title: 'The Return of the Night Train',
   paragraphs: NIGHT_TRAIN_PARAGRAPHS.map((text, i) => ({ label: letterOf(i), text })),
   statements: NIGHT_TRAIN_STATEMENTS.map(([text, para, explanation]) => ({
@@ -139,7 +141,7 @@ type Q = [stem: string, options: [string, string, string, string], answer: numbe
 
 const LETTERS: readonly ChoiceLetter[] = ['A', 'B', 'C', 'D'];
 
-function questions(qs: Q[]): CarefulReadingPayload['questions'] {
+function questions(qs: Q[]): GeneratedPayloadOf<'careful_reading'>['questions'] {
   return qs.map(([stem, options, answer, explanation]) => ({
     stem,
     options,
@@ -149,8 +151,9 @@ function questions(qs: Q[]): CarefulReadingPayload['questions'] {
 }
 
 /** 仔细阅读两篇 = 两道 careful_reading 题（没有标题） */
-export const DEMO_CAREFUL: CarefulReadingPayload[] = [
+export const DEMO_CAREFUL: GeneratedPayloadOf<'careful_reading'>[] = [
   {
+    topic: 'the hidden benefits of boredom',
     passage:
       'Most of us treat boredom as a problem to be solved as quickly as possible. A few seconds of waiting in a queue is enough to make us reach for a phone. Yet a number of psychologists now argue that this habit may come at a cost, because boredom appears to serve a useful purpose.\n\n' +
       'In one widely discussed experiment, volunteers were first asked to copy numbers from a telephone directory for fifteen minutes, a deliberately dull task. They were then asked to think of as many uses as possible for a pair of plastic cups. Compared with a group that had skipped the dull task, the bored volunteers came up with more ideas, and their ideas were judged more original.\n\n' +
@@ -215,6 +218,7 @@ export const DEMO_CAREFUL: CarefulReadingPayload[] = [
     ]),
   },
   {
+    topic: 'community repair cafés',
     passage:
       'On the first Saturday of every month, a community hall in a small northern town fills with broken objects: toasters that no longer heat, lamps with loose wires, trousers with torn pockets. Volunteers with tools and sewing machines sit at long tables, and visitors wait their turn to have their belongings repaired for free.\n\n' +
       'Events like this, often called repair cafés, have spread to thousands of towns over the past fifteen years. Their organisers describe two goals. The first is environmental: every item that is fixed is one less item sent to a landfill. The second is educational. Visitors are expected to stay and watch, and ideally to help, so that they can manage simple repairs on their own next time.\n\n' +
