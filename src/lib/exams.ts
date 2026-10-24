@@ -74,12 +74,13 @@ export const SECTIONS: Readonly<Record<SectionId, SectionMeta>> = {
     id: 'listening',
     title: '听力',
     description: '长对话、短文和讲座：先听朗读做题，做完再看原文。',
-    available: false,
+    // 大模型出分角色稿子（src/lib/exam/listening.ts），系统 TTS 朗读，本地判分
+    available: true,
   },
   mistakes: {
     id: 'mistakes',
     title: '错题本',
-    description: '做错的阅读题和待重练的翻译、写作集中在这里，点进去重做原题。',
+    description: '做错的阅读、听力题和待重练的翻译、写作集中在这里，点进去重做原题。',
     // 汇总页：按 attempt 表列出没过的题（src/lib/exam/mistakes.ts）
     available: true,
   },

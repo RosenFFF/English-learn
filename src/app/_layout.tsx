@@ -47,6 +47,7 @@ export default function RootLayout() {
             />
             <Stack.Screen name="vocab" options={{ headerShown: false }} />
             <Stack.Screen name="reading" options={{ headerShown: false }} />
+            <Stack.Screen name="listening" options={{ headerShown: false }} />
             <Stack.Screen name="translation" options={{ headerShown: false, title: '翻译' }} />
             <Stack.Screen name="writing" options={{ headerShown: false, title: '写作' }} />
             <Stack.Screen
