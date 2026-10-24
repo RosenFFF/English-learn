@@ -158,7 +158,7 @@ describe('作答记录', () => {
     expect(await qrepo.listAttemptsForQuestion(db, 'essay')).toEqual([]);
   });
 
-  it('错题本只列 wrong_count > 0 的作答（主观题 wrong_count 为 0，不进错题本），按考试过滤', async () => {
+  it('listWrongAttempts 只列 wrong_count > 0 的作答（主观题 wrong_count 固定 0，不在这里出现），按考试过滤', async () => {
     await qrepo.insertAttempt(db, attempt('wrong', 'read', { wrong_count: 2 }));
     await qrepo.insertAttempt(db, attempt('right', 'read', { wrong_count: 0, score: 5 }));
     await qrepo.insertAttempt(

@@ -3,7 +3,7 @@
  * 主观题点评（v2）包含：总评、分项点评 criteria、逐句点评（翻译）/ 问题清单（写作）、改写示例 rewrite。
  * 点评文字经过清洗和长度上限后才返回，可以直接存库（见 feedback.ts 的 subjectiveAttemptFields）。
  * 规则：客观题 wrongCount = 答错（含未答）的题数、needsRedo = false；
- * 主观题 wrongCount 固定 0（不进错题本），needsRedo = score < 9（待重练）。
+ * 主观题 wrongCount 固定 0，needsRedo = score < 9（待重练，错题本里带「待重练」标签列出）。
  */
 import type { z } from 'zod';
 

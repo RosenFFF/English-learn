@@ -91,7 +91,10 @@ export async function listAttemptsForQuestion(
   );
 }
 
-/** 错题本：客观题里有答错的作答（wrong_count > 0），最新的在前 */
+/**
+ * 客观题里有答错的作答（wrong_count > 0），逐条返回、不按题去重，最新的在前。
+ * 主观题 wrong_count 固定 0，不会出现在这里；错题本页面用的是 listOpenMistakes。
+ */
 export async function listWrongAttempts(
   db: SqlDb,
   exam: ExamId,
@@ -103,7 +106,10 @@ export async function listWrongAttempts(
   );
 }
 
-/** 待重练：主观题得分低于 9 的作答（needs_redo = 1），最新的在前 */
+/**
+ * 待重练：主观题得分低于 9 的作答（needs_redo = 1），逐条返回、不按题去重，最新的在前。
+ * 错题本页面用的是 listOpenMistakes（每道题只看最近一次作答）。
+ */
 export async function listRedoAttempts(
   db: SqlDb,
   exam: ExamId,
@@ -176,7 +182,8 @@ export async function listRecentTopics(
 }
 
 /**
- * 错题本：每道题只看最近一次作答——客观题 wrong_count > 0、主观题 needs_redo = 1 的列出来，
+ * 错题本：每道题只看最近一次作答——客观题 wrong_count > 0、主观题（翻译、写作）needs_redo = 1
+ * 的列出来（主观题在页面上带「待重练」标签，wrong_count 保持 0），
  * 最近做的在前。作答记录只追加不修改：重做全对（或主观题 ≥ 9 分）会写一条新作答，
  * 这道题的最近一次作答就「过了」，自然从列表里消失，练习记录和统计不受影响。
  * 软删除的题也列（错题还在，原题能打开）。行的含义见 src/lib/exam/mistakes.ts。
