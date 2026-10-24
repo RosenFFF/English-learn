@@ -7,8 +7,8 @@ export default function NotFoundScreen() {
       <Stack.Screen options={{ title: '找不到页面' }} />
       <View style={styles.container}>
         <Text style={styles.title}>这个页面不存在。</Text>
-        <Link href="/today" style={styles.link}>
-          <Text style={styles.linkText}>回到今天</Text>
+        <Link href="/" style={styles.link}>
+          <Text style={styles.linkText}>回到首页</Text>
         </Link>
       </View>
     </>

@@ -54,13 +54,19 @@ test('完整背词流程（网页版）', async ({ page }) => {
   await page.goto('/');
   expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
 
-  // 1. 首次进入：选择词书
-  await page.getByTestId('choose-book').click({ timeout: 60_000 });
+  // 1. 首次进入：选考试（自动选上六级词书），再到「词汇 → 词书」换成四级
+  await page.getByTestId('exam-cet6').click({ timeout: 60_000 });
+  await page.getByTestId('section-vocab').click();
+  await page.getByTestId('vocab-books').click();
+  await expect(page.getByText('每日计划 · 六级词汇')).toBeVisible();
   await page.getByTestId('book-cet4').click();
   await expect(page.getByText('每日计划 · 四级词汇')).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/04-books.png` });
 
-  // 2. 大模型设置（用拦截的假接口测试连接）
+  // 2. 大模型设置（用拦截的假接口测试连接）：回到首页再进「我的」
+  await page.goBack();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/home$/);
   await page.getByTestId('tab-me').click();
   await page.getByTestId('open-settings').click();
   await page.getByTestId('llm-base-url').fill(MOCK_LLM);
@@ -74,8 +80,9 @@ test('完整背词流程（网页版）', async ({ page }) => {
   await page.screenshot({ path: `${SHOTS}/05-settings.png` });
   await page.goBack();
 
-  // 3. 今天
-  await page.getByTestId('tab-today').click();
+  // 3. 词汇（今天的背词任务）
+  await page.getByTestId('tab-home').click();
+  await page.getByTestId('section-vocab').click();
   await expect(page.getByTestId('today-new')).toContainText('20');
   await page.screenshot({ path: `${SHOTS}/01-today.png` });
 
@@ -110,23 +117,28 @@ test('完整背词流程（网页版）', async ({ page }) => {
   await page.waitForTimeout(1300); // 等庆祝动画放完
   await page.screenshot({ path: `${SHOTS}/06-done.png` });
 
-  // 5. 回到今天：打卡和进度更新
+  // 5. 回到词汇：打卡和进度更新
   await page.getByTestId('back-today').click();
   await expect(page.getByTestId('streak')).toContainText('1 天');
   await page.screenshot({ path: `${SHOTS}/07-today-after.png` });
 
-  await page.getByTestId('tab-practice').click();
+  await page.getByTestId('vocab-practice').click();
   await expect(page.getByText(/弱点词 \d+/)).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/08-practice.png` });
+  await page.goBack();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/home$/);
   await page.getByTestId('tab-me').click();
   await expect(page.getByText('已学单词')).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/09-me.png` });
 
   // 6. 暗色（跟随系统）；先把每日新词调到 30，今天还能再学 10 个
   await page.emulateMedia({ colorScheme: 'dark' });
-  await page.getByTestId('tab-books').click();
+  await page.getByTestId('tab-home').click();
+  await page.getByTestId('section-vocab').click();
+  await page.getByTestId('vocab-books').click();
   await page.getByRole('radio', { name: '每日新词：30' }).click();
-  await page.getByTestId('tab-today').click();
+  await page.goBack();
   await expect(page.getByTestId('today-new')).toContainText('10');
   await page.waitForTimeout(300);
   await page.screenshot({ path: `${SHOTS}/10-dark-today.png` });
@@ -137,7 +149,7 @@ test('完整背词流程（网页版）', async ({ page }) => {
   await page.screenshot({ path: `${SHOTS}/11-dark-card-back.png` });
 
   // 7. 刷新后进度仍在（OPFS 持久化）
-  await page.goto('/today');
+  await page.goto('/vocab');
   await expect(page.getByTestId('streak')).toContainText('1 天', { timeout: 60_000 });
 
   expect(errors.filter((e) => !/speech|voices/i.test(e))).toEqual([]);

@@ -39,8 +39,8 @@ function resolveFile(urlPath) {
   } catch {
     return null;
   }
-  // The exported site has no index document; the first tab is /today.
-  const relativePath = pathname === '/' ? 'today' : pathname.replace(/^\/+/, '');
+  // web.output = 'single': every route is served by dist/index.html (see the fallback below).
+  const relativePath = pathname.replace(/^\/+/, '');
   const candidate = normalize(join(root, relativePath));
   if (!insideRoot(candidate)) {
     return null;
