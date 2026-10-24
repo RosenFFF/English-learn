@@ -1,4 +1,11 @@
-import { cleanText, promptText, TRUNCATION_MARK, truncate } from './sanitize';
+import {
+  cleanSpeechText,
+  cleanText,
+  promptText,
+  stripSpeakerPrefix,
+  TRUNCATION_MARK,
+  truncate,
+} from './sanitize';
 
 describe('truncate', () => {
   it('不超长原样返回', () => {
@@ -51,5 +58,35 @@ describe('promptText', () => {
   });
   it('同样清洗和截断', () => {
     expect(promptText('\u0007hello world', 6)).toBe(`hello${TRUNCATION_MARK}`);
+  });
+});
+
+describe('cleanSpeechText', () => {
+  it.each([
+    ['Hello\u0000 world\u200b!', 'Hello world!'],
+    ['[laughs] Well, (pause) okay.', 'Well, okay.'],
+    ['**Really?** `yes` # done', 'Really? yes done'],
+    ['<speak>Hi</speak> there 😀👍🏽 .', 'Hi there.'],
+    ['line one\nline two', 'line one line two'],
+    ['It costs (about) $5.', 'It costs (about) $5.'],
+  ])('%p → %p', (input, expected) => {
+    expect(cleanSpeechText(input)).toBe(expected);
+  });
+  it('非字符串返回空串', () => {
+    expect(cleanSpeechText(null)).toBe('');
+  });
+});
+
+describe('stripSpeakerPrefix', () => {
+  it('去掉传入的称呼 / id 前缀（不区分大小写，中英文冒号）', () => {
+    expect(stripSpeakerPrefix('W: Hi.', ['W', 'Woman'])).toBe('Hi.');
+    expect(stripSpeakerPrefix('woman：Hi.', ['W', 'Woman'])).toBe('Hi.');
+    expect(stripSpeakerPrefix('Professor Lee: Today…', ['L', 'Professor Lee'])).toBe('Today…');
+  });
+  it('别的冒号句子不动；称呼里的正则字符被转义', () => {
+    expect(stripSpeakerPrefix('Remember: this.', ['W'])).toBe('Remember: this.');
+    expect(stripSpeakerPrefix('Dr. A: x', ['Dr. A'])).toBe('x');
+    expect(stripSpeakerPrefix('DrXA: x', ['Dr. A'])).toBe('DrXA: x');
+    expect(stripSpeakerPrefix('W: x', [])).toBe('W: x');
   });
 });
