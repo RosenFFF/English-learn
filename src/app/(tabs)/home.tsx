@@ -25,6 +25,13 @@ const SECTION_ICON: Record<SectionId, IconName> = {
   mistakes: 'bookmark-outline',
 };
 
+/** 已上线板块卡片上的小字（词汇显示今天的任务，另算） */
+const LIVE_CAPTION: Partial<Record<SectionId, string>> = {
+  reading: '3 种题型 · 大模型出题',
+  translation: '汉译英 · 大模型评分',
+  writing: '15 分制 · 大模型评分',
+};
+
 function VocabStatus({ data }: { data: TodaySummary | null }) {
   if (!data)
     return (
@@ -81,8 +88,8 @@ function SectionCard({
   const vocabLabel =
     section.id === 'vocab' && data?.book
       ? `，待复习 ${data.reviewToDo} 个，新词 ${data.newToDo} 个`
-      : section.id === 'reading'
-        ? '，3 种题型，大模型出题'
+      : LIVE_CAPTION[section.id]
+        ? `，${LIVE_CAPTION[section.id]}`
         : '';
   return (
     <PressableScale
@@ -116,9 +123,9 @@ function SectionCard({
       {live ? (
         section.id === 'vocab' ? (
           <VocabStatus data={today} />
-        ) : section.id === 'reading' ? (
+        ) : LIVE_CAPTION[section.id] ? (
           <Txt variant="caption" tone="secondary">
-            3 种题型 · 大模型出题
+            {LIVE_CAPTION[section.id]}
           </Txt>
         ) : null
       ) : (

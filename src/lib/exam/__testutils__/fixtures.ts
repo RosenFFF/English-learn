@@ -89,7 +89,44 @@ export const VALID_PAYLOADS: Record<QuestionType, Record<string, unknown>> = {
   },
 };
 
+/** v2 翻译点评（当前结构） */
 export const VALID_TRANSLATION_FEEDBACK = {
+  score: 10,
+  band: 11,
+  summary: '意思基本准确，个别搭配不当。',
+  criteria: [
+    { key: 'accuracy', level: 'good', comment: '意思基本都译出来了。' },
+    { key: 'vocabulary', level: 'fair', comment: '「茶文化」的搭配不够地道。' },
+    { key: 'grammar', level: 'weak', comment: '第一句缺少谓语。' },
+    { key: 'fluency', level: 'fair', comment: '句子之间缺少衔接。' },
+  ],
+  sentences: [
+    {
+      original: 'China tea culture long.',
+      problem: '缺少谓语',
+      improvement: 'China has a long tea culture.',
+    },
+  ],
+  rewrite: 'China has a long history of tea culture.',
+};
+
+/** v2 写作点评（当前结构） */
+export const VALID_ESSAY_FEEDBACK = {
+  score: 8,
+  band: 8,
+  summary: '基本切题，语言错误较多。',
+  criteria: [
+    { key: 'content', level: 'fair', comment: '切题，但论据单薄。' },
+    { key: 'organization', level: 'fair', comment: '段落之间缺少过渡。' },
+    { key: 'vocabulary', level: 'fair', comment: '用词重复。' },
+    { key: 'grammar', level: 'weak', comment: '主谓一致错误较多。' },
+  ],
+  issues: [{ excerpt: 'peoples is', problem: '主谓不一致', suggestion: 'people are' }],
+  rewrite: 'Lifelong learning matters because ...',
+};
+
+/** v1 时期存库的翻译点评（没有 version、criteria、rewrite） */
+export const V1_TRANSLATION_FEEDBACK = {
   score: 10,
   band: 11,
   summary: '意思基本准确，个别搭配不当。',
@@ -102,7 +139,8 @@ export const VALID_TRANSLATION_FEEDBACK = {
   ],
 };
 
-export const VALID_ESSAY_FEEDBACK = {
+/** v1 时期存库的写作点评（没有 version、band、criteria） */
+export const V1_ESSAY_FEEDBACK = {
   score: 8,
   summary: '基本切题，语言错误较多。',
   issues: [{ excerpt: 'peoples is', problem: '主谓不一致', suggestion: 'people are' }],

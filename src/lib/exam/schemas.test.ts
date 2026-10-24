@@ -1,15 +1,25 @@
 import {
+  V1_ESSAY_FEEDBACK,
+  V1_TRANSLATION_FEEDBACK,
   VALID_ESSAY_FEEDBACK,
   VALID_PAYLOADS,
   VALID_TRANSLATION_FEEDBACK,
 } from './__testutils__/fixtures';
 import {
+  BAND_RANGE,
+  bandForScore,
+  CRITERION_LABEL,
+  ESSAY_CRITERIA,
   essayFeedbackSchema,
+  essayFeedbackV1Schema,
+  GENERATION_SCHEMAS,
   PAYLOAD_SCHEMAS,
   parsePayload,
   summarizeIssues,
+  TRANSLATION_CRITERIA,
   type PayloadOf,
   translationFeedbackSchema,
+  translationFeedbackV1Schema,
 } from './schemas';
 import { QUESTION_TYPES, type QuestionType } from './types';
 
@@ -295,18 +305,88 @@ describe('主观题评分结果 schema', () => {
   it.each([-1, 15.5, Number.NaN, '10'])('分数 %p 不合法', (score) => {
     expect(essayFeedbackSchema.safeParse({ ...VALID_ESSAY_FEEDBACK, score }).success).toBe(false);
   });
-  it('翻译分数要和档次对得上', () => {
+  it('band 由代码按分数算：模型给的 band 忽略（错的、不合法的都不算失败）', () => {
     const r = translationFeedbackSchema.safeParse({ ...VALID_TRANSLATION_FEEDBACK, score: 14 });
-    expect(r.success).toBe(false);
-    expect(summarizeIssues(r.error!)).toMatch(/与档次 11 不符/);
-    expect(
-      translationFeedbackSchema.safeParse({ ...VALID_TRANSLATION_FEEDBACK, band: 7 }).success,
-    ).toBe(false);
+    expect(r.success && r.data.band).toBe(14);
+    const bad = translationFeedbackSchema.safeParse({ ...VALID_TRANSLATION_FEEDBACK, band: 7 });
+    expect(bad.success && bad.data.band).toBe(11);
+  });
+  it('写作不返回 band 也能通过，输出带按分数算的 band', () => {
+    const { band: _omit, ...noBand } = VALID_ESSAY_FEEDBACK;
+    const r = essayFeedbackSchema.safeParse({ ...noBand, score: 13 });
+    expect(r.success && r.data.band).toBe(14);
   });
   it('翻译至少点评一句', () => {
     expect(
       translationFeedbackSchema.safeParse({ ...VALID_TRANSLATION_FEEDBACK, sentences: [] }).success,
     ).toBe(false);
+  });
+  it('v2 必须有分项点评和改写示例', () => {
+    const { criteria: _c, ...noCriteria } = VALID_TRANSLATION_FEEDBACK;
+    const { rewrite: _r, ...noRewrite } = VALID_TRANSLATION_FEEDBACK;
+    expect(translationFeedbackSchema.safeParse(noCriteria).success).toBe(false);
+    expect(translationFeedbackSchema.safeParse(noRewrite).success).toBe(false);
+    expect(essayFeedbackSchema.safeParse({ ...VALID_ESSAY_FEEDBACK, rewrite: '  ' }).success).toBe(
+      false,
+    );
+  });
+  it('写作改写示例不能含中文', () => {
+    const r = essayFeedbackSchema.safeParse({ ...VALID_ESSAY_FEEDBACK, rewrite: 'Life 学习' });
+    expect(summarizeIssues(r.error!)).toMatch(/改写示例必须是英文/);
+  });
+  it('v1 存库 schema：新字段可选，但给了就照样校验', () => {
+    expect(translationFeedbackV1Schema.safeParse(V1_TRANSLATION_FEEDBACK).success).toBe(true);
+    expect(essayFeedbackV1Schema.safeParse(V1_ESSAY_FEEDBACK).success).toBe(true);
+    expect(translationFeedbackV1Schema.safeParse(VALID_TRANSLATION_FEEDBACK).success).toBe(true);
+    expect(essayFeedbackV1Schema.safeParse({ ...V1_ESSAY_FEEDBACK, criteria: [] }).success).toBe(
+      false,
+    );
+  });
+  it('维度常量和中文名一一对应', () => {
+    for (const k of [...TRANSLATION_CRITERIA, ...ESSAY_CRITERIA])
+      expect(CRITERION_LABEL[k]).toBeTruthy();
+  });
+});
+
+describe('bandForScore', () => {
+  it.each([
+    [15, 14],
+    [13, 14],
+    [12.5, 14],
+    [12, 11],
+    [10, 11],
+    [9.5, 11],
+    [9, 8],
+    [7, 8],
+    [6.5, 8],
+    [6, 5],
+    [4, 5],
+    [3.5, 5],
+    [3, 2],
+    [1, 2],
+    [0.5, 2],
+    [0, 0],
+  ])('%p 分 → %p 档', (score, band) => {
+    expect(bandForScore(score)).toBe(band);
+  });
+  it.each([0, 0.5, 3, 3.5, 6.5, 9, 9.5, 12, 12.5, 15])(
+    '%p 分落在所算档次的 BAND_RANGE 内',
+    (score) => {
+      const [lo, hi] = BAND_RANGE[bandForScore(score)];
+      expect(score >= lo && score <= hi).toBe(true);
+    },
+  );
+});
+
+describe('BODY_SCHEMAS 派生', () => {
+  it.each(QUESTION_TYPES)('%s：读题 schema 的 topic 可选、生成 schema 的 topic 必填', (type) => {
+    const p = VALID_PAYLOADS[type] as Record<string, unknown>;
+    const { topic: _omit, ...noTopic } = p;
+    expect(PAYLOAD_SCHEMAS[type].safeParse(noTopic).success).toBe(true);
+    expect(GENERATION_SCHEMAS[type].safeParse(noTopic).success).toBe(false);
+    expect(GENERATION_SCHEMAS[type].safeParse({ ...noTopic, topic: 'campus life' }).success).toBe(
+      true,
+    );
   });
 });
 

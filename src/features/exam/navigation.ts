@@ -26,6 +26,8 @@ export function leaveExamPicker(from: ExamPickerFrom | null): void {
 const LIVE_SECTION_ROUTES: Partial<Record<SectionId, Href>> = {
   vocab: '/vocab',
   reading: '/reading',
+  translation: '/translation',
+  writing: '/writing',
 };
 
 /** 首页板块卡片点进去去哪 */

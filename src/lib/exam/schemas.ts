@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 
+import { cleanText } from './sanitize';
 import {
   CHOICE_LETTERS,
   SUBJECTIVE_MAX_SCORE,
@@ -222,26 +223,26 @@ const withOptionalTopic = <S extends z.ZodType>(s: S) =>
  * 新生成的题用 GENERATION_SCHEMAS，topic 必填。
  */
 export const PAYLOAD_SCHEMAS = {
-  banked_cloze: withOptionalTopic(bankedClozeSchema),
-  matching: withOptionalTopic(matchingSchema),
-  careful_reading: withOptionalTopic(carefulReadingSchema),
-  translation: withOptionalTopic(translationSchema),
-  essay: withOptionalTopic(essaySchema),
-  long_conversation: withOptionalTopic(longConversationSchema),
-  passage: withOptionalTopic(passageSchema),
-  lecture: withOptionalTopic(lectureSchema),
+  banked_cloze: withOptionalTopic(BODY_SCHEMAS.banked_cloze),
+  matching: withOptionalTopic(BODY_SCHEMAS.matching),
+  careful_reading: withOptionalTopic(BODY_SCHEMAS.careful_reading),
+  translation: withOptionalTopic(BODY_SCHEMAS.translation),
+  essay: withOptionalTopic(BODY_SCHEMAS.essay),
+  long_conversation: withOptionalTopic(BODY_SCHEMAS.long_conversation),
+  passage: withOptionalTopic(BODY_SCHEMAS.passage),
+  lecture: withOptionalTopic(BODY_SCHEMAS.lecture),
 } as const satisfies Record<QuestionType, z.ZodType>;
 
 /** 生成新题用（schema v2）：topic 必填 */
 export const GENERATION_SCHEMAS = {
-  banked_cloze: withTopic(bankedClozeSchema),
-  matching: withTopic(matchingSchema),
-  careful_reading: withTopic(carefulReadingSchema),
-  translation: withTopic(translationSchema),
-  essay: withTopic(essaySchema),
-  long_conversation: withTopic(longConversationSchema),
-  passage: withTopic(passageSchema),
-  lecture: withTopic(lectureSchema),
+  banked_cloze: withTopic(BODY_SCHEMAS.banked_cloze),
+  matching: withTopic(BODY_SCHEMAS.matching),
+  careful_reading: withTopic(BODY_SCHEMAS.careful_reading),
+  translation: withTopic(BODY_SCHEMAS.translation),
+  essay: withTopic(BODY_SCHEMAS.essay),
+  long_conversation: withTopic(BODY_SCHEMAS.long_conversation),
+  passage: withTopic(BODY_SCHEMAS.passage),
+  lecture: withTopic(BODY_SCHEMAS.lecture),
 } as const satisfies Record<QuestionType, z.ZodType>;
 
 /** 读出来的题：v1 的老题可能没有 topic */
@@ -264,6 +265,15 @@ export type GeneratedPayloadOf<T extends QuestionType> = BodyOf<T> & { topic: st
 export type Question = { [T in QuestionType]: { type: T; payload: PayloadOf<T> } }[QuestionType];
 
 // ---------- 主观题评分结果 ----------
+/**
+ * 点评 JSON 的结构版本，随点评一起存进 attempt.feedback（顶层 version 字段）。
+ * v1：最初的结构（翻译：score、band、summary、sentences；写作：score、summary、issues、rewrite），存库时没有 version。
+ * v2：两种题型都增加分项点评 criteria；翻译增加整段改写示例 rewrite。
+ * 档次 band 两种题型都由代码按 score 算（bandForScore），不让模型返回；读出的点评总是带 band。
+ * 读库用 parseStoredFeedback（src/lib/exam/feedback.ts）：没有 version 的按 v1 宽松读，新字段可能缺。
+ */
+export const FEEDBACK_VERSION = 2;
+
 /** 六级翻译 / 写作的五个档次（14、11、8、5、2 分档）以及 0 分 */
 export const BANDS = [14, 11, 8, 5, 2, 0] as const;
 export type Band = (typeof BANDS)[number];
@@ -277,47 +287,186 @@ export const BAND_RANGE: Readonly<Record<Band, readonly [number, number]>> = {
   0: [0, 0.5],
 };
 
-const score15 = z.number().min(0, '分数不能小于 0').max(SUBJECTIVE_MAX_SCORE, '分数不能大于 15');
+/** 分项点评的维度 */
+export const TRANSLATION_CRITERIA = ['accuracy', 'vocabulary', 'grammar', 'fluency'] as const;
+export const ESSAY_CRITERIA = ['content', 'organization', 'vocabulary', 'grammar'] as const;
+export type TranslationCriterion = (typeof TRANSLATION_CRITERIA)[number];
+export type EssayCriterion = (typeof ESSAY_CRITERIA)[number];
+export type Criterion = TranslationCriterion | EssayCriterion;
+/** 维度中文名，界面和 prompt 共用 */
+export const CRITERION_LABEL: Readonly<Record<Criterion, string>> = {
+  accuracy: '忠实原文',
+  vocabulary: '词汇',
+  grammar: '语法',
+  fluency: '通顺连贯',
+  content: '切题与内容',
+  organization: '结构与衔接',
+};
+/** 分项评价等级：好 / 一般 / 薄弱 */
+export const CRITERION_LEVELS = ['good', 'fair', 'weak'] as const;
+export type CriterionLevel = (typeof CRITERION_LEVELS)[number];
+export const CRITERION_LEVEL_LABEL: Readonly<Record<CriterionLevel, string>> = {
+  good: '好',
+  fair: '一般',
+  weak: '薄弱',
+};
 
+/** 点评文字的长度上限（字符数，超出截断，不算校验失败） */
+export const FEEDBACK_LIMITS = {
+  /** 总评、分项点评 */
+  comment: 500,
+  /** 逐句 / 问题清单里的每个字段 */
+  item: 400,
+  /** 改写示例全文 */
+  rewrite: 3000,
+  /** 逐句点评、问题清单最多保留几条（多出的丢掉） */
+  maxItems: 30,
+} as const;
+
+/** 清洗后的点评文字：去控制字符、规整空白、截断；清洗后为空算不合格 */
+const fbText = (max: number) =>
+  z
+    .string()
+    .transform((s) => cleanText(s, { max }))
+    .pipe(z.string().min(1, '不能为空'));
+/** 可以为空的点评文字（如写作问题清单的原文片段） */
+const fbOptionalText = (max: number) => z.string().transform((s) => cleanText(s, { max }));
+/** 改写示例：英文，不能含中文 */
+const englishRewrite = fbText(FEEDBACK_LIMITS.rewrite).refine(
+  (s) => !HAN.test(s),
+  '改写示例必须是英文，不能含中文',
+);
+
+const score15 = z.number().min(0, '分数不能小于 0').max(SUBJECTIVE_MAX_SCORE, '分数不能大于 15');
+/**
+ * 按分数算档次：从高到低取第一个下限不超过分数的档次（与 BAND_RANGE 一致，边界分归高档，
+ * 如 12.5 → 14 档、9.5 → 11 档、0.5 → 2 档、0 → 0）。档次一律由代码算，不让模型返回。
+ */
+export function bandForScore(score: number): Band {
+  for (const b of BANDS) if (score >= BAND_RANGE[b][0]) return b;
+  return 0;
+}
+
+/** 校验通过后按 score 填入 band（模型或存库 JSON 里自带的 band 一律忽略） */
+const withBand = <T extends { score: number }>(v: T): T & { band: Band } => ({
+  ...v,
+  band: bandForScore(v.score),
+});
+
+/** 分项点评：每个维度恰好一条，输出按 keys 的顺序排好 */
+function criteriaSchema<K extends Criterion>(keys: readonly [K, ...K[]]) {
+  return z
+    .array(
+      z.object({
+        key: z.enum(keys),
+        level: z.enum(CRITERION_LEVELS),
+        comment: fbText(FEEDBACK_LIMITS.comment),
+      }),
+    )
+    .superRefine((items, ctx) => {
+      const seen = new Set<string>();
+      items.forEach((it, i) => {
+        if (seen.has(it.key))
+          ctx.addIssue({ code: 'custom', message: `维度 ${it.key} 重复`, path: [i, 'key'] });
+        seen.add(it.key);
+      });
+      const missing = keys.filter((k) => !seen.has(k));
+      if (missing.length)
+        ctx.addIssue({ code: 'custom', message: `缺少维度：${missing.join('、')}` });
+    })
+    .transform((items) => [...items].sort((a, b) => keys.indexOf(a.key) - keys.indexOf(b.key)));
+}
+
+/** 最多保留 maxItems 条 */
+const capItems = <S extends z.ZodType>(item: S) =>
+  z.array(item).transform((a) => a.slice(0, FEEDBACK_LIMITS.maxItems));
+
+const translationSentence = z.object({
+  original: fbText(FEEDBACK_LIMITS.item),
+  problem: fbText(FEEDBACK_LIMITS.item),
+  improvement: fbText(FEEDBACK_LIMITS.item),
+});
+const essayIssue = z.object({
+  excerpt: fbOptionalText(FEEDBACK_LIMITS.item),
+  problem: fbText(FEEDBACK_LIMITS.item),
+  suggestion: fbText(FEEDBACK_LIMITS.item),
+});
+
+/** 翻译点评（v2，模型输出和 v2 存库都用这一套）；band 由代码按 score 填入 */
 export const translationFeedbackSchema = z
   .object({
     score: score15,
-    band: z.union(BANDS.map((b) => z.literal(b)) as [z.ZodLiteral<Band>, ...z.ZodLiteral<Band>[]]),
     /** 总评 */
-    summary: text,
+    summary: fbText(FEEDBACK_LIMITS.comment),
+    /** 分项点评：忠实原文、词汇、语法、通顺连贯 */
+    criteria: criteriaSchema(TRANSLATION_CRITERIA),
     /** 逐句点评 */
-    sentences: z
-      .array(z.object({ original: text, problem: text, improvement: text }))
-      .min(1, '至少点评 1 句'),
+    sentences: capItems(translationSentence).refine((a) => a.length >= 1, '至少点评 1 句'),
+    /** 改写示例：在学生译文基础上修改后的整段译文（英文） */
+    rewrite: englishRewrite,
   })
-  .superRefine((v, ctx) => {
-    const [lo, hi] = BAND_RANGE[v.band];
-    if (v.score < lo || v.score > hi)
-      ctx.addIssue({
-        code: 'custom',
-        message: `分数 ${v.score} 与档次 ${v.band} 不符（应在 ${lo} 到 ${hi} 之间）`,
-        path: ['score'],
-      });
-  });
+  .transform(withBand);
 
-export const essayFeedbackSchema = z.object({
-  score: score15,
-  /** 总评 */
-  summary: text,
-  /** 问题清单 */
-  issues: z.array(z.object({ excerpt: z.string(), problem: text, suggestion: text })),
-  /** 改写示范 */
-  rewrite: text,
-});
+/** 写作点评（v2）；band 由代码按 score 填入 */
+export const essayFeedbackSchema = z
+  .object({
+    score: score15,
+    /** 总评 */
+    summary: fbText(FEEDBACK_LIMITS.comment),
+    /** 分项点评：切题与内容、结构与衔接、词汇、语法 */
+    criteria: criteriaSchema(ESSAY_CRITERIA),
+    /** 问题清单 */
+    issues: capItems(essayIssue),
+    /** 改写示例：保留学生思路改写的全文（英文） */
+    rewrite: englishRewrite,
+  })
+  .transform(withBand);
+
+/**
+ * v1 存库点评（没有 version 字段）：v2 新增的字段可选、改写不查中文；band 同样按 score 重新算（老记录里存的 band 忽略）。
+ * 只用于读老记录，不用于校验模型输出。
+ */
+export const translationFeedbackV1Schema = z
+  .object({
+    score: score15,
+    summary: fbText(FEEDBACK_LIMITS.comment),
+    criteria: criteriaSchema(TRANSLATION_CRITERIA).optional(),
+    sentences: capItems(translationSentence),
+    rewrite: fbText(FEEDBACK_LIMITS.rewrite).optional(),
+  })
+  .transform(withBand);
+
+export const essayFeedbackV1Schema = z
+  .object({
+    score: score15,
+    summary: fbText(FEEDBACK_LIMITS.comment),
+    criteria: criteriaSchema(ESSAY_CRITERIA).optional(),
+    issues: capItems(essayIssue),
+    rewrite: fbText(FEEDBACK_LIMITS.rewrite),
+  })
+  .transform(withBand);
 
 export const FEEDBACK_SCHEMAS = {
   translation: translationFeedbackSchema,
   essay: essayFeedbackSchema,
 } as const satisfies Record<SubjectiveType, z.ZodType>;
 
-export type TranslationFeedback = z.infer<typeof translationFeedbackSchema>;
-export type EssayFeedback = z.infer<typeof essayFeedbackSchema>;
-export type FeedbackOf<T extends SubjectiveType> = z.infer<(typeof FEEDBACK_SCHEMAS)[T]>;
+export const FEEDBACK_V1_SCHEMAS = {
+  translation: translationFeedbackV1Schema,
+  essay: essayFeedbackV1Schema,
+} as const satisfies Record<SubjectiveType, z.ZodType>;
+
+/** v2 点评（新评分结果） */
+export type TranslationFeedback = z.output<typeof translationFeedbackSchema>;
+export type EssayFeedback = z.output<typeof essayFeedbackSchema>;
+export type FeedbackOf<T extends SubjectiveType> = z.output<(typeof FEEDBACK_SCHEMAS)[T]>;
+/** 从库里读出的点评：v1 老记录可能缺 criteria、rewrite（翻译）；band 总是有（按 score 算） */
+export type StoredFeedbackOf<T extends SubjectiveType> = z.output<(typeof FEEDBACK_V1_SCHEMAS)[T]>;
+export type CriterionFeedback<K extends Criterion = Criterion> = {
+  key: K;
+  level: CriterionLevel;
+  comment: string;
+};
 
 /** 把 zod 的校验错误压缩成几行中文提示：既回给模型重试，也放进报错信息 */
 export function summarizeIssues(error: z.ZodError, max = 8): string {

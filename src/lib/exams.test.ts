@@ -42,7 +42,12 @@ describe('考试与板块元数据', () => {
       expect(getSection(id).title).not.toBe('');
       expect(getSection(id).description).not.toBe('');
     }
-    expect(SECTION_IDS.filter((id) => getSection(id).available)).toEqual(['vocab', 'reading']);
+    expect(SECTION_IDS.filter((id) => getSection(id).available)).toEqual([
+      'vocab',
+      'reading',
+      'translation',
+      'writing',
+    ]);
     for (const v of ['', 'Vocab', 'today', '../vocab', 'constructor', 'toString', null, 1]) {
       expect(isSectionId(v)).toBe(false);
     }

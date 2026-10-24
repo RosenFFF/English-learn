@@ -61,13 +61,14 @@ export const SECTIONS: Readonly<Record<SectionId, SectionMeta>> = {
     id: 'translation',
     title: '翻译',
     description: '一段汉译英，按六级评分标准打分并逐句点评。',
-    available: false,
+    // 大模型现场出题并评分（src/lib/exam/grade.ts）
+    available: true,
   },
   writing: {
     id: 'writing',
     title: '写作',
     description: '按题目写作文，15 分制打分，指出问题并给出改写示范。',
-    available: false,
+    available: true,
   },
   listening: {
     id: 'listening',
