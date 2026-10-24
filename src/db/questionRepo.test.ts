@@ -158,7 +158,20 @@ describe('作答记录', () => {
     expect(await qrepo.listAttemptsForQuestion(db, 'essay')).toEqual([]);
   });
 
-  it('错题本只列 wrong_count > 0 的作答（主观题 wrong_count 为 0，不进错题本），按考试过滤', async () => {
+  it('同一时间戳按 id 降序，和插入顺序无关', async () => {
+    await qrepo.insertAttempt(db, attempt('t-a', 'read', { submitted_at: T0 }));
+    await qrepo.insertAttempt(db, attempt('t-c', 'read', { submitted_at: T0 }));
+    await qrepo.insertAttempt(db, attempt('t-b', 'read', { submitted_at: T0 }));
+    await qrepo.insertAttempt(db, attempt('t-0', 'read', { submitted_at: T0 + 1 }));
+    expect((await qrepo.listAttemptsForQuestion(db, 'read')).map((a) => a.id)).toEqual([
+      't-0',
+      't-c',
+      't-b',
+      't-a',
+    ]);
+  });
+
+  it('listWrongAttempts 只列 wrong_count > 0 的作答（主观题 wrong_count 固定 0，不在这里出现），按考试过滤', async () => {
     await qrepo.insertAttempt(db, attempt('wrong', 'read', { wrong_count: 2 }));
     await qrepo.insertAttempt(db, attempt('right', 'read', { wrong_count: 0, score: 5 }));
     await qrepo.insertAttempt(
@@ -496,9 +509,86 @@ describe('listOpenMistakes（错题本）', () => {
     expect((await qrepo.listOpenMistakes(db, 'cet6', 1)).map((r) => r.question_id)).toEqual(['r2']);
   });
 
-  it('同一时间提交的两次作答按 id 取最后一条，不会把一道题列两遍', async () => {
+  it('主观题重做后仍低于 9 分：留在列表里，显示最新一次，次数累加', async () => {
+    await qrepo.insertAttempt(db, attempt('e1-1', 'e1', subj({ score: 6, submitted_at: T0 + 1 })));
+    await qrepo.insertAttempt(
+      db,
+      attempt(
+        't1-1',
+        't1',
+        subj({ section: 'translation', type: 'translation', score: 5, submitted_at: T0 + 2 }),
+      ),
+    );
+    // 写作重做 8 分、翻译重做 8.5 分：都还没到 9 分
+    await qrepo.insertAttempt(db, attempt('e1-2', 'e1', subj({ score: 8, submitted_at: T0 + 3 })));
+    await qrepo.insertAttempt(
+      db,
+      attempt(
+        't1-2',
+        't1',
+        subj({ section: 'translation', type: 'translation', score: 8.5, submitted_at: T0 + 4 }),
+      ),
+    );
+    const rows = await qrepo.listOpenMistakes(db, 'cet6');
+    expect(
+      rows.map((r) => [r.question_id, r.score, r.wrong_count, r.needs_redo, r.miss_times]),
+    ).toEqual([
+      ['t1', 8.5, 0, 1, 2],
+      ['e1', 8, 0, 1, 2],
+    ]);
+  });
+
+  it('跨考试：ielts 有自己的错题，cet6 查不到；ielts 也查不到 cet6 的', async () => {
+    await qrepo.insertQuestion(db, question('i1', { exam: 'ielts' }));
+    await qrepo.insertAttempt(
+      db,
+      attempt('i1-1', 'i1', { exam: 'ielts', wrong_count: 3, submitted_at: T0 + 2 }),
+    );
+    await qrepo.insertAttempt(db, attempt('r1-1', 'r1', { wrong_count: 1, submitted_at: T0 + 1 }));
+    expect(
+      (await qrepo.listOpenMistakes(db, 'ielts')).map((r) => [
+        r.question_id,
+        r.exam,
+        r.wrong_count,
+      ]),
+    ).toEqual([['i1', 'ielts', 3]]);
+    expect((await qrepo.listOpenMistakes(db, 'cet6')).map((r) => r.question_id)).toEqual(['r1']);
+  });
+
+  it('limit 取整后夹在 1–500，不是有限数用默认 200', async () => {
+    for (let i = 0; i < 501; i++) {
+      const id = `bulk-${String(i).padStart(3, '0')}`;
+      await qrepo.insertQuestion(db, question(id));
+      await qrepo.insertAttempt(
+        db,
+        attempt(`${id}-a`, id, { wrong_count: 1, submitted_at: T0 + i }),
+      );
+    }
+    const count = async (limit: number) => (await qrepo.listOpenMistakes(db, 'cet6', limit)).length;
+    expect(await count(-1)).toBe(1);
+    expect(await count(0)).toBe(1);
+    expect(await count(1.5)).toBe(1);
+    expect(await count(Number.NaN)).toBe(200);
+    expect(await count(Infinity)).toBe(200);
+    expect(await count(1000)).toBe(500);
+    expect((await qrepo.listOpenMistakes(db, 'cet6')).length).toBe(200);
+    expect(qrepo.clampOpenMistakesLimit(-Infinity)).toBe(200);
+    expect(qrepo.clampOpenMistakesLimit(37.9)).toBe(37);
+  });
+
+  it('同一时间戳按 id 定一个确定的次序，不会列两遍', async () => {
     await qrepo.insertAttempt(db, attempt('z-a', 'r1', { wrong_count: 2, submitted_at: T0 }));
     await qrepo.insertAttempt(db, attempt('z-b', 'r1', { wrong_count: 0, submitted_at: T0 }));
+    // id 大的 z-b 全对：这道题算过了
     expect(await qrepo.listOpenMistakes(db, 'cet6')).toEqual([]);
+  });
+
+  it('同一时间戳、反向插入（先插 id 大的，再插 id 小的）：仍然选 id 大的那条', async () => {
+    await qrepo.insertAttempt(db, attempt('z-b', 'r1', { wrong_count: 3, submitted_at: T0 }));
+    await qrepo.insertAttempt(db, attempt('z-a', 'r1', { wrong_count: 0, submitted_at: T0 }));
+    const rows = await qrepo.listOpenMistakes(db, 'cet6');
+    // 选中的是 id 大的 z-b（错 3 题），不是后写入的 z-a（全对）；只列一次
+    expect(rows.map((r) => [r.question_id, r.wrong_count, r.miss_times])).toEqual([['r1', 3, 1]]);
+    expect((await qrepo.listAttemptsForQuestion(db, 'r1'))[0]!.id).toBe('z-b');
   });
 });

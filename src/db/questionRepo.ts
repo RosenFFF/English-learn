@@ -80,18 +80,24 @@ export async function insertAttempt(db: SqlDb, a: AttemptRow): Promise<void> {
   await db.runAsync(insertAttemptSql, attemptValues(a));
 }
 
-/** 某道题的全部作答，最新的在前 */
+/**
+ * 某道题的全部作答，最新的在前；同一时间戳按 id 降序定一个确定的次序
+ * （和 listOpenMistakes 取「最近一次」的次序一致，第一条就是错题本看的那条）。
+ */
 export async function listAttemptsForQuestion(
   db: SqlDb,
   questionId: string,
 ): Promise<AttemptRow[]> {
   return db.getAllAsync<AttemptRow>(
-    'SELECT * FROM attempt WHERE question_id = ? ORDER BY submitted_at DESC, id',
+    'SELECT * FROM attempt WHERE question_id = ? ORDER BY submitted_at DESC, id DESC',
     [questionId],
   );
 }
 
-/** 错题本：客观题里有答错的作答（wrong_count > 0），最新的在前 */
+/**
+ * 客观题里有答错的作答（wrong_count > 0），逐条返回、不按题去重，最新的在前。
+ * 主观题 wrong_count 固定 0，不会出现在这里；错题本页面用的是 listOpenMistakes。
+ */
 export async function listWrongAttempts(
   db: SqlDb,
   exam: ExamId,
@@ -103,7 +109,10 @@ export async function listWrongAttempts(
   );
 }
 
-/** 待重练：主观题得分低于 9 的作答（needs_redo = 1），最新的在前 */
+/**
+ * 待重练：主观题得分低于 9 的作答（needs_redo = 1），逐条返回、不按题去重，最新的在前。
+ * 错题本页面用的是 listOpenMistakes（每道题只看最近一次作答）。
+ */
 export async function listRedoAttempts(
   db: SqlDb,
   exam: ExamId,
@@ -175,16 +184,29 @@ export async function listRecentTopics(
   return out;
 }
 
+/** listOpenMistakes 的 limit：取整后夹在 1–500；不是有限数（NaN、Infinity）用默认 200 */
+export const OPEN_MISTAKES_MAX_LIMIT = 500;
+export const OPEN_MISTAKES_DEFAULT_LIMIT = 200;
+export function clampOpenMistakesLimit(limit: number): number {
+  return Number.isFinite(limit)
+    ? Math.min(Math.max(Math.trunc(limit), 1), OPEN_MISTAKES_MAX_LIMIT)
+    : OPEN_MISTAKES_DEFAULT_LIMIT;
+}
+
 /**
- * 错题本：每道题只看最近一次作答——客观题 wrong_count > 0、主观题 needs_redo = 1 的列出来，
+ * 错题本：每道题只看最近一次作答——客观题 wrong_count > 0、主观题（翻译、写作）needs_redo = 1
+ * 的列出来（主观题在页面上带「待重练」标签，wrong_count 保持 0），
  * 最近做的在前。作答记录只追加不修改：重做全对（或主观题 ≥ 9 分）会写一条新作答，
  * 这道题的最近一次作答就「过了」，自然从列表里消失，练习记录和统计不受影响。
- * 软删除的题也列（错题还在，原题能打开）。行的含义见 src/lib/exam/mistakes.ts。
+ * 同一时间戳按 id 定一个确定的次序（submitted_at DESC, id DESC），不会列两遍。id 是随机 uuid，
+ * 这个次序不代表写入先后；不用 rowid，因为备份恢复后 rowid 会重排，id 不变。
+ * 软删除的题也列（错题还在，原题能打开）。limit 见 clampOpenMistakesLimit。
+ * 行的含义见 src/lib/exam/mistakes.ts。
  */
 export async function listOpenMistakes(
   db: SqlDb,
   exam: ExamId,
-  limit = 200,
+  limit = OPEN_MISTAKES_DEFAULT_LIMIT,
 ): Promise<OpenMistakeRow[]> {
   return db.getAllAsync<OpenMistakeRow>(
     `SELECT a.question_id, a.exam, a.section, a.type, a.score, a.max_score,
@@ -199,6 +221,6 @@ export async function listOpenMistakes(
        AND (a.wrong_count > 0 OR a.needs_redo = 1)
      ORDER BY a.submitted_at DESC, a.question_id
      LIMIT ?`,
-    [exam, limit],
+    [exam, clampOpenMistakesLimit(limit)],
   );
 }

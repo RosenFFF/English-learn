@@ -45,7 +45,10 @@ export const QUESTION_TYPE_LABEL: Readonly<Record<QuestionType, string>> = {
   lecture: '听力·讲座',
 };
 
-/** 主观题：LLM 评分，不进错题本，低于 REDO_THRESHOLD 标「待重练」 */
+/**
+ * 主观题：LLM 评分，wrong_count 固定 0；低于 REDO_THRESHOLD 标「待重练」（needs_redo = 1），
+ * 错题本里带「待重练」标签列出，重做达到 REDO_THRESHOLD 后移出。
+ */
 export const SUBJECTIVE_TYPES = ['translation', 'essay'] as const;
 export type SubjectiveType = (typeof SUBJECTIVE_TYPES)[number];
 export type ObjectiveType = Exclude<QuestionType, SubjectiveType>;
