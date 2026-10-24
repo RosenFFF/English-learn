@@ -76,4 +76,27 @@ CREATE TABLE IF NOT EXISTS kv(
 );
 `,
   },
+  {
+    version: 2,
+    name: 'question_bank',
+    // 题库与作答记录。exam / section / type 的取值见 src/lib/exams.ts 和 src/lib/exam/types.ts。
+    // wrong_count 只算客观题答错的题数；翻译、写作是主观题，wrong_count 固定 0，
+    // 得分低于 9（满分 15）时 needs_redo = 1（待重练）。
+    sql: `
+CREATE TABLE IF NOT EXISTS question(
+  id TEXT PRIMARY KEY, exam TEXT NOT NULL, section TEXT NOT NULL, type TEXT NOT NULL,
+  schema_version INTEGER NOT NULL, payload TEXT NOT NULL, source TEXT NOT NULL, model TEXT,
+  prompt_version INTEGER NOT NULL, created_at INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS idx_question_pick ON question(exam, type, deleted, created_at);
+CREATE TABLE IF NOT EXISTS attempt(
+  id TEXT PRIMARY KEY, question_id TEXT NOT NULL REFERENCES question(id),
+  exam TEXT NOT NULL, section TEXT NOT NULL, type TEXT NOT NULL,
+  answer TEXT NOT NULL, score REAL, max_score REAL NOT NULL, feedback TEXT,
+  wrong_count INTEGER NOT NULL DEFAULT 0, needs_redo INTEGER NOT NULL DEFAULT 0,
+  duration_ms INTEGER, started_at INTEGER NOT NULL, submitted_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_attempt_q ON attempt(question_id, submitted_at);
+CREATE INDEX IF NOT EXISTS idx_attempt_stat ON attempt(exam, section, submitted_at);
+CREATE INDEX IF NOT EXISTS idx_attempt_wrong ON attempt(exam, wrong_count, submitted_at);
+`,
+  },
 ];

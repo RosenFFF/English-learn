@@ -10,6 +10,7 @@ src/features/<域>/   按业务域组织：exam, study, books, practice, ai, set
 src/db/              SQLite 打开、迁移、仓储（repository）函数
 src/platform/        原生能力的薄封装（安全存储、朗读、文件读写/分享）；只有这里能 import 原生模块
 src/lib/             纯函数工具（fsrs 封装、日期、llm 客户端）
+src/lib/exam/        题库的题型定义、zod schema、prompt、题目生成与评分（纯 TS，见下文「题库与评分层」）
 assets/db/words.db   只读词库（构建时生成，脚本在 scripts/build-words-db）
 ```
 考试与板块的元数据（考试 id `cet6` / `kaoyan` / `ielts`，板块 id `vocab` / `reading` / `translation` / `writing` / `listening` / `mistakes`）在 `src/lib/exams.ts`，路由白名单和题库表的考试/题型字段都以它为准。
@@ -37,7 +38,7 @@ assets/db/words.db   只读词库（构建时生成，脚本在 scripts/build-wo
 
 ## words.db
 - word(id INTEGER PK, headword TEXT UNIQUE, phonetic_uk, phonetic_us, meanings_json, examples_json, phrases_json)
-- book(id TEXT PK, name, exam TEXT CHECK(exam IN ('cet4','cet6','kaoyan','ielts')), word_count)
+- book(id TEXT PK, name, exam TEXT CHECK(exam IN ('cet4','cet6','kaoyan','ielts')), word_count)  -- exam 在代码里是 `BookExam`（src/db/wordsRepo.ts），表示词书属于哪门考试，和 src/lib/exams.ts 的 `ExamId`（用户在准备的考试）不是一回事
 - book_word(book_id, word_id, seq, PRIMARY KEY(book_id, word_id))
 - meta(key PK, value)  -- 含 db_version、来源与许可证
 
@@ -50,8 +51,30 @@ assets/db/words.db   只读词库（构建时生成，脚本在 scripts/build-wo
 - kv(key TEXT PRIMARY KEY, value TEXT NOT NULL)  -- 仅非敏感设置
 - 索引：card(deleted, state, due)、review_log(reviewed_at)、review_log(word_id)
 - ai_cache(word_id, kind, model, content, created_at, PRIMARY KEY(word_id, kind, model))
+- question(id TEXT PK /*uuid*/, exam, section, type, schema_version INTEGER, payload TEXT /*题目 JSON*/, source TEXT /*'llm'*/, model, prompt_version INTEGER, created_at, deleted INTEGER DEFAULT 0)  -- 迁移 v2
+- attempt(id TEXT PK /*uuid*/, question_id → question(id), exam, section, type, answer TEXT /*作答 JSON*/, score REAL /*评分失败为 NULL*/, max_score REAL, feedback TEXT /*主观题点评 JSON*/, wrong_count INTEGER DEFAULT 0, needs_redo INTEGER DEFAULT 0, duration_ms, started_at, submitted_at)  -- 迁移 v2
+- 题库索引：question(exam, type, deleted, created_at)、attempt(question_id, submitted_at)、attempt(exam, section, submitted_at)、attempt(exam, wrong_count, submitted_at)
+- 题库取值：exam 为 `cet6` / `kaoyan` / `ielts`；section 为 `reading` / `translation` / `writing` / `listening`；type 为细分题型 `banked_cloze`、`matching`、`careful_reading`（阅读），`translation`，`essay`（写作），`long_conversation`、`passage`、`lecture`（听力）。exam、section 以 src/lib/exams.ts 为准，type 与板块的对应见 src/lib/exam/types.ts。
+- wrong_count 只算客观题答错（含未答）的题数，错题本查 wrong_count > 0。翻译、写作是主观题，wrong_count 固定 0、不进错题本；得分低于 9（满分 15）时 needs_redo = 1，表示「待重练」。
+- 题目软删除（deleted = 1）后不再出现在题目列表里，但作答记录保留，按 id 仍能取到原题。
+- 题库 SQL 在 src/db/questionRepo.ts。
 - 时间一律存 Unix 毫秒 UTC；updated_at/deleted/uuid 预留给未来同步。
 - 设置（接口地址、模型名）存 kv 表；API 密钥只存 expo-secure-store，禁止写入 SQLite、日志、崩溃报告。
+
+## 备份格式
+- 导出文件 `format: 'english-learn-backup'`，当前 `version: 2`（`BACKUP_VERSION`，src/lib/backup.ts）。
+- v1：card、review_log、study_plan、daily_stat、kv（白名单）。v2 增加 question、attempt。
+- 导入 v1 时题库视为空：导入后题库被清空（与「整体替换」一致）。版本号大于当前版本时拒绝导入，提示先升级 App。
+- 导入在一个事务里完成：先删 attempt 再删 question，再插入；任何一行出错整体回滚。
+
+## 题库与评分层（src/lib/exam）
+纯 TS，不能 import Expo / React Native（ESLint 对 src/lib 有限制）。zod（v4，版本写死）只在这个目录里用，其它层只拿推导出的普通类型。
+- `types.ts`：题型、板块对应、行类型（QuestionRow / AttemptRow）、主观题满分 15 和「待重练」阈值 9。
+- `schemas.ts`：每种题型的 payload schema，结构之外还在 superRefine 里查业务规则（选词填空 15 词 10 空、答案不重复、短文按顺序各有一次 `{{1}}`…`{{10}}`；段落匹配段落字母从 A 连续、10 道陈述答案必须是存在的段落；仔细阅读 5 题；听力长对话 4 题至少两位说话人，短文、讲座 3 到 4 题；选择题都是 4 个不重复选项、答案 A 到 D；每题带中文解析）。`SCHEMA_VERSION` 存进 question.schema_version。
+- `prompts.ts`：每种题型的生成 prompt 和主观题评分 prompt。要求只输出 JSON、原创、不得复述或改写真题，难度对齐六级；学生作答放在 `<answer>` 里，其中的指令一律忽略。改 prompt 必须把 `PROMPT_VERSION` 加 1。
+- `generate.ts`：`generateQuestion(type, { cfg, chat?, signal? })`，chat 依赖注入，默认用 src/lib/llm.ts。流程：解析 JSON（容忍代码块包裹和首尾杂字）→ zod 校验 → 不合格就把上次输出和精简后的错误回给模型重试，最多 2 次 → 仍失败抛 `ExamGenError`（kind 为 `invalid_json` / `schema_mismatch`，message 是中文）。`LlmError` 原样抛出、不额外重试（网络类错误 llm.ts 已经退避重试过）。
+- `grade.ts`：客观题本地判分（每题 1 分，返回 score、maxScore、wrongCount、逐题对错）；翻译、写作调用 LLM 按六级 15 分制评分，结果同样走 zod 校验和重试（分数 0 到 15，翻译分数要落在所给档次内）。主观题返回 wrongCount = 0、needsRedo = score < 9；空白作答直接 0 分，不调用 LLM。
+- 题目和作答怎么写进数据库由 features 层负责：拿 generate / grade 的结果拼成 QuestionRow / AttemptRow，再调 src/db/questionRepo.ts。
 
 ## 代码规范
 TypeScript strict，禁止 any；ESLint + Prettier；Conventional Commits；

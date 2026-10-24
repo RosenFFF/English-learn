@@ -19,24 +19,24 @@ beforeEach(async () => {
 
 describe('迁移', () => {
   it('重复执行是幂等的，版本号记在 schema_migrations', async () => {
-    expect(await runMigrations(db, MIGRATIONS, now)).toBe(1);
+    expect(await runMigrations(db, MIGRATIONS, now)).toBe(2);
     const rows = await db.getAllAsync<{ version: number }>(
-      'SELECT version FROM schema_migrations',
+      'SELECT version FROM schema_migrations ORDER BY version',
       [],
     );
-    expect(rows).toEqual([{ version: 1 }]);
+    expect(rows).toEqual([{ version: 1 }, { version: 2 }]);
   });
 
   it('失败的迁移整体回滚，不留半张表', async () => {
     const bad: Migration[] = [
       ...MIGRATIONS,
-      { version: 2, name: 'bad', sql: 'CREATE TABLE t2(x INTEGER); SELECT * FROM no_such_table;' },
+      { version: 3, name: 'bad', sql: 'CREATE TABLE t2(x INTEGER); SELECT * FROM no_such_table;' },
     ];
     await expect(runMigrations(db, bad, now)).rejects.toThrow();
     expect(
       await db.getFirstAsync('SELECT name FROM sqlite_master WHERE name = ?', ['t2']),
     ).toBeNull();
-    expect(await runMigrations(db, MIGRATIONS, now)).toBe(1);
+    expect(await runMigrations(db, MIGRATIONS, now)).toBe(2);
   });
 });
 

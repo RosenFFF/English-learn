@@ -1,7 +1,9 @@
 /** user.db 仓储：所有读写学习进度的 SQL 都在这里。 */
 import type { BackupPayload, DailyStatRow, KvRow, StudyPlanRow } from '../lib/backup';
-import { isExportableKv } from '../lib/backup';
+import { BACKUP_VERSION, isExportableKv } from '../lib/backup';
+import type { AttemptRow, QuestionRow } from '../lib/exam/types';
 import type { CardRow, ReviewLogRow } from '../lib/fsrs';
+import { attemptValues, insertAttemptSql, insertQuestionSql, questionValues } from './questionRepo';
 import type { SqlDb, SqlValue } from './types';
 
 const CARD_COLS = [
@@ -310,7 +312,7 @@ export async function dumpForBackup(
   const kv = await db.getAllAsync<KvRow>('SELECT key, value FROM kv', []);
   return {
     format: 'english-learn-backup',
-    version: 1,
+    version: BACKUP_VERSION,
     exported_at: now,
     schema_version: schemaVersion,
     card: await db.getAllAsync<CardRow>('SELECT * FROM card', []),
@@ -321,13 +323,24 @@ export async function dumpForBackup(
     study_plan: await getPlans(db),
     daily_stat: await listDayStats(db),
     kv: kv.filter(isExportableKv),
+    question: await db.getAllAsync<QuestionRow>(
+      'SELECT * FROM question ORDER BY created_at, id',
+      [],
+    ),
+    attempt: await db.getAllAsync<AttemptRow>(
+      'SELECT * FROM attempt ORDER BY submitted_at, id',
+      [],
+    ),
   };
 }
 
-/** 用备份整体替换学习数据（AI 缓存保留）。在一个事务里完成，失败不改动现有数据。 */
+/**
+ * 用备份整体替换学习数据和题库（AI 缓存保留）。在一个事务里完成，失败不改动现有数据。
+ * 题库先删作答记录再删题目（attempt 引用 question），插入时反过来。v1 备份没有题库，导入后题库为空。
+ */
 export async function restoreFromBackup(db: SqlDb, p: BackupPayload): Promise<void> {
   await db.withTransactionAsync(async () => {
-    for (const t of ['card', 'review_log', 'study_plan', 'daily_stat'])
+    for (const t of ['card', 'review_log', 'study_plan', 'daily_stat', 'attempt', 'question'])
       await db.runAsync(`DELETE FROM ${t}`, []);
     for (const c of p.card)
       await db.runAsync(insertSql('card', CARD_COLS), values(c, [...CARD_COLS]));
@@ -361,5 +374,7 @@ export async function restoreFromBackup(db: SqlDb, p: BackupPayload): Promise<vo
           kv.key,
           kv.value,
         ]);
+    for (const q of p.question ?? []) await db.runAsync(insertQuestionSql, questionValues(q));
+    for (const a of p.attempt ?? []) await db.runAsync(insertAttemptSql, attemptValues(a));
   });
 }

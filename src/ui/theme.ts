@@ -1,6 +1,6 @@
 import { useColorScheme } from 'react-native';
 
-import type { ExamId } from '../features/books/constants';
+import type { BookExam } from '../features/books/constants';
 
 export interface Palette {
   scheme: 'light' | 'dark';
@@ -18,7 +18,7 @@ export interface Palette {
   warningSoft: string;
   warningText: string;
   rating: Record<'again' | 'hard' | 'good' | 'easy', string>;
-  exam: Record<ExamId, string>;
+  exam: Record<BookExam, string>;
 }
 
 const light: Palette = {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { ExamId } from '../../db/wordsRepo';
+import type { BookExam } from '../../db/wordsRepo';
 import type { WordDetail } from '../../lib/words';
 import { explainWord, isAiConfigured } from './explain';
 
@@ -11,7 +11,7 @@ export type AiState =
   | { status: 'error'; message: string };
 
 /** 卡片背面的 AI 讲解；没配置大模型时 enabled=false，界面不显示入口 */
-export function useAiExplain(word: WordDetail | null, exam: ExamId) {
+export function useAiExplain(word: WordDetail | null, exam: BookExam) {
   const [enabled, setEnabled] = useState(false);
   const [state, setState] = useState<AiState>({ status: 'idle' });
   const ctrl = useRef<AbortController | null>(null);

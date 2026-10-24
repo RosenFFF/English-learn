@@ -2,12 +2,16 @@
 import { formatPhonetic, parseMeanings, parsePairs, type WordDetail } from '../lib/words';
 import type { SqlDb } from './types';
 
-export type ExamId = 'cet4' | 'cet6' | 'kaoyan' | 'ielts';
+/**
+ * 词书所属的考试（words.db 里 book.exam 列的取值，含四级词书 cet4）。
+ * 注意和 src/lib/exams.ts 的 ExamId 不是一回事：那个是「用户在准备的考试」，只有 cet6 / kaoyan / ielts。
+ */
+export type BookExam = 'cet4' | 'cet6' | 'kaoyan' | 'ielts';
 
 export interface BookRow {
   id: string;
   name: string;
-  exam: ExamId;
+  exam: BookExam;
   word_count: number;
 }
 

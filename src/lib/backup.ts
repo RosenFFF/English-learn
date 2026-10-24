@@ -2,11 +2,23 @@
  * 学习进度导出/导入的文件格式与校验（纯函数）。
  * 只包含 user.db 里的学习数据和非敏感设置；API 密钥永远不导出。
  */
-import { isSelectableExam } from './exams';
+import { isExamId, isSelectableExam } from './exams';
+import {
+  isPracticeSection,
+  isQuestionType,
+  QUESTION_SECTION,
+  type AttemptRow,
+  type QuestionRow,
+} from './exam/types';
 import type { CardRow, ReviewLogRow } from './fsrs';
 
 export const BACKUP_FORMAT = 'english-learn-backup';
-export const BACKUP_VERSION = 1;
+/**
+ * 备份格式版本。
+ * v1：学习进度和设置。
+ * v2：增加题库 question 和作答记录 attempt；v1 文件仍能导入（题库视为空）。
+ */
+export const BACKUP_VERSION = 2;
 
 export interface StudyPlanRow {
   book_id: string;
@@ -40,6 +52,9 @@ export interface BackupPayload {
   study_plan: StudyPlanRow[];
   daily_stat: DailyStatRow[];
   kv: KvRow[];
+  /** v2 起才有；parseBackup 读 v1 时补成空数组 */
+  question?: QuestionRow[];
+  attempt?: AttemptRow[];
 }
 
 /** 允许随备份导出的设置项（白名单，防止将来误把敏感项写进 kv 后被导出） */
@@ -68,6 +83,58 @@ export class BackupError extends Error {}
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
 const isNumOrNull = (v: unknown): boolean => v === null || isNum(v);
+const isStrOrNull = (v: unknown): boolean => v === null || isStr(v);
+const isFlag = (v: unknown): boolean => v === 0 || v === 1;
+/** 字符串内容是一个 JSON 值（payload 必须是对象） */
+function isJsonText(v: unknown, objectOnly = false): boolean {
+  if (!isStr(v)) return false;
+  try {
+    const parsed: unknown = JSON.parse(v);
+    return !objectOnly || (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed));
+  } catch {
+    return false;
+  }
+}
+/** exam / section / type 取值合法，且题型和板块对得上 */
+function isKnownKind(r: Record<string, unknown>): boolean {
+  return (
+    isExamId(r.exam) &&
+    isPracticeSection(r.section) &&
+    isQuestionType(r.type) &&
+    QUESTION_SECTION[r.type] === r.section
+  );
+}
+
+function isQuestionRow(r: Record<string, unknown>): boolean {
+  return (
+    isStr(r.id) &&
+    isKnownKind(r) &&
+    isNum(r.schema_version) &&
+    isJsonText(r.payload, true) &&
+    isStr(r.source) &&
+    isStrOrNull(r.model ?? null) &&
+    isNum(r.prompt_version) &&
+    isNum(r.created_at) &&
+    isFlag(r.deleted)
+  );
+}
+
+function isAttemptRow(r: Record<string, unknown>): boolean {
+  return (
+    isStr(r.id) &&
+    isStr(r.question_id) &&
+    isKnownKind(r) &&
+    isJsonText(r.answer) &&
+    isNumOrNull(r.score ?? null) &&
+    isNum(r.max_score) &&
+    (r.feedback == null || isJsonText(r.feedback)) &&
+    isNum(r.wrong_count) &&
+    isFlag(r.needs_redo) &&
+    isNumOrNull(r.duration_ms ?? null) &&
+    isNum(r.started_at) &&
+    isNum(r.submitted_at)
+  );
+}
 
 function checkRows(name: string, v: unknown, check: (o: Record<string, unknown>) => boolean): void {
   if (!Array.isArray(v)) throw new BackupError(`备份文件缺少 ${name}`);
@@ -118,9 +185,28 @@ export function parseBackup(text: string): BackupPayload {
   );
   checkRows('daily_stat', o.daily_stat, (r) => isStr(r.date) && /^\d{4}-\d{2}-\d{2}$/.test(r.date));
   checkRows('kv', o.kv, (r) => isStr(r.key) && isStr(r.value));
+  // v1 没有题库：当成空数组；v2 起这两张表必须有且行格式正确
+  if (o.version >= 2) {
+    checkRows('question', o.question, isQuestionRow);
+    checkRows('attempt', o.attempt, isAttemptRow);
+  }
+  const question = o.version >= 2 ? (o.question as QuestionRow[]) : [];
+  const attempt = o.version >= 2 ? (o.attempt as AttemptRow[]) : [];
+  const ids = new Set(question.map((q) => q.id));
+  attempt.forEach((a, i) => {
+    if (!ids.has(a.question_id))
+      throw new BackupError(`备份文件的 attempt 第 ${i + 1} 行对应的题目不存在`);
+  });
   const p = o as unknown as BackupPayload;
   return {
     ...p,
+    question: question.map((q) => ({ ...q, model: q.model ?? null })),
+    attempt: attempt.map((a) => ({
+      ...a,
+      score: a.score ?? null,
+      feedback: a.feedback ?? null,
+      duration_ms: a.duration_ms ?? null,
+    })),
     card: p.card.map((c) => ({
       ...c,
       learning_steps: isNum(c.learning_steps) ? c.learning_steps : 0,
