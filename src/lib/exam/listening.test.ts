@@ -4,6 +4,7 @@ import { ExamGenError, generateQuestion, type ChatFn } from './generate';
 import {
   countWords,
   isListeningQuestionType,
+  isNarrator,
   isListeningSectionType,
   LISTENING_QUESTION_TYPES,
   LISTENING_SPEC,
@@ -229,6 +230,7 @@ describe('toSpeechQueue', () => {
     expect(q).toHaveLength(8 + 4);
     expect(q[0]).toEqual({
       kind: 'script',
+      role: 'speaker',
       speaker: 'W',
       name: 'Woman',
       gender: 'female',
@@ -243,11 +245,13 @@ describe('toSpeechQueue', () => {
     ]);
     expect(questions[0]).toEqual({
       kind: 'question',
+      role: 'narrator',
       questionIndex: 0,
       speaker: NARRATOR_ROLE.id,
       name: NARRATOR_ROLE.name,
       gender: NARRATOR_ROLE.gender,
       text: `Question 1. ${data.questions[0].stem}`,
+      displayText: data.questions[0].stem,
     });
     expect(questions[3].text).toBe(`Question 4. ${data.questions[3].stem}`);
   });
@@ -282,6 +286,56 @@ describe('toSpeechQueue', () => {
     expect(questionPrefix(9)).toBe('Question 10.');
   });
 
+  it('role：readQuestions 打开时稿子条是 speaker、念题条是 narrator', () => {
+    const data = parsed();
+    const q = toSpeechQueue(data, { readQuestions: true });
+    expect(q.map((x) => [x.kind, x.role])).toEqual([
+      ...Array.from({ length: 8 }, () => ['script', 'speaker']),
+      ...Array.from({ length: 4 }, () => ['question', 'narrator']),
+    ]);
+    expect(q.map(isNarrator)).toEqual([...Array(8).fill(false), ...Array(4).fill(true)]);
+  });
+
+  it('role：readQuestions 关闭时只有稿子条，全是 speaker，没有旁白', () => {
+    const q = toSpeechQueue(parsed(), { readQuestions: false });
+    expect(q.length).toBeGreaterThan(0);
+    expect(q.every((x) => x.role === 'speaker')).toBe(true);
+    expect(q.some(isNarrator)).toBe(false);
+  });
+
+  it('isNarrator 看 role，不看 speaker id：稿子角色 id 叫 "narrator" 也不算旁白', () => {
+    const q = toSpeechQueue({
+      roles: [{ id: NARRATOR_ROLE.id, name: 'Narrator', gender: 'male' }],
+      script: [{ speaker: NARRATOR_ROLE.id, text: 'Once upon a time.' }],
+      questions: [{ stem: 'What happened?' }],
+    });
+    expect(q.map((x) => [x.speaker, x.role, isNarrator(x)])).toEqual([
+      [NARRATOR_ROLE.id, 'speaker', false],
+      [NARRATOR_ROLE.id, 'narrator', true],
+    ]);
+    expect(isNarrator({ role: 'narrator' })).toBe(true);
+    expect(isNarrator({ role: 'speaker' })).toBe(false);
+  });
+
+  it('念题条：text 是清洗后的朗读文本，displayText 是去掉 Markdown 的题干（不带前缀）', () => {
+    const q = toSpeechQueue({
+      roles: [{ id: 'N', name: 'Narrator', gender: 'male' }],
+      script: [{ speaker: 'N', text: 'One.' }],
+      questions: [
+        { stem: '## Why  does the **man** look _tired_?' },
+        { stem: 'What does [the report](https://x.y) say about the `woman’s` plan?' },
+      ],
+    });
+    const asked = q.filter((x) => x.kind === 'question');
+    expect(asked.map((x) => [x.text, x.displayText])).toEqual([
+      ['Question 1. Why does the man look tired?', 'Why does the man look tired?'],
+      [
+        'Question 2. What does the report say about the woman’s plan?',
+        'What does the report say about the woman’s plan?',
+      ],
+    ]);
+  });
+
   it('旁白角色是固定常量', () => {
     expect(NARRATOR_ROLE).toEqual({ id: 'narrator', name: 'Narrator', gender: 'female' });
   });
@@ -295,7 +349,14 @@ describe('toSpeechQueue', () => {
       ],
     };
     expect(toSpeechQueue(payload)).toEqual([
-      { kind: 'script', speaker: 'N', name: 'Narrator', gender: 'male', text: 'One.' },
+      {
+        kind: 'script',
+        role: 'speaker',
+        speaker: 'N',
+        name: 'Narrator',
+        gender: 'male',
+        text: 'One.',
+      },
     ]);
   });
 });

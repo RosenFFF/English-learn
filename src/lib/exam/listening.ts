@@ -2,10 +2,11 @@
  * 听力板块的常量和纯函数（不依赖 zod / React / Expo）。
  * - LISTENING_SPEC：三种题型的角色数、题数、稿子词数范围（schema 和 prompt 共用）；
  * - countWords：按英文词数计稿子长度；
- * - toSpeechQueue：把题目里的分角色稿子（以及默认跟在后面的念题）展开成朗读队列，前端逐条交给 expo-speech。
+ * - toSpeechQueue：把题目里的分角色稿子（以及默认跟在后面的念题）展开成朗读队列，前端逐条交给 expo-speech；
+ * - isNarrator：队列里的一项是不是旁白念的（念题等），界面不用再拿 speaker 和 NARRATOR_ROLE.id 比。
  * 这里只给出角色的 gender 等属性，不写任何平台 voice id；音色由前端按 gender 挑选。
  */
-import { cleanSpeechText } from './sanitize';
+import { cleanSpeechText, plainStem } from './sanitize';
 import type { ListeningPayload } from './schemas';
 import { QUESTION_SECTION, type QuestionType } from './types';
 
@@ -80,7 +81,15 @@ export const NARRATOR_ROLE = {
   gender: SpeakerGender;
 };
 
+/**
+ * 朗读队列里一项由谁念：'narrator' = 旁白（念题等，音色用 NARRATOR_ROLE）；
+ * 'speaker' = 稿子里的角色（roles[] 之一）。和 speaker id 无关：稿子角色的 id 碰巧叫 "narrator" 也是 'speaker'。
+ */
+export type SpeechRole = 'narrator' | 'speaker';
+
 interface SpeechItemBase {
+  /** 由谁念，见 SpeechRole；判断旁白用 isNarrator */
+  role: SpeechRole;
   /** 角色 id（稿子条 = roles[].id；念题条 = NARRATOR_ROLE.id） */
   speaker: string;
   /** 角色称呼，如 "Woman"、"Professor Lee"、"Narrator" */
@@ -93,16 +102,28 @@ interface SpeechItemBase {
 /** 朗读队列的一项：稿子原文 */
 export interface ScriptSpeechItem extends SpeechItemBase {
   kind: 'script';
+  role: 'speaker';
 }
 
 /** 朗读队列的一项：念题（只念题干，不念选项） */
 export interface QuestionSpeechItem extends SpeechItemBase {
   kind: 'question';
+  role: 'narrator';
   /** 第几题（0 起，对应 questions 的下标） */
   questionIndex: number;
+  /**
+   * 给界面显示的题干纯文本（plainStem：去掉 Markdown 和多余空白，不带 "Question n." 前缀）。
+   * text 是朗读用的 "Question n. 题干"（cleanSpeechText 清洗过）。
+   */
+  displayText: string;
 }
 
 export type SpeechItem = ScriptSpeechItem | QuestionSpeechItem;
+
+/** 这一项是不是旁白念的（念题条目是；稿子里的角色不是，哪怕 id 叫 "narrator"） */
+export function isNarrator(item: Pick<SpeechItem, 'role'>): boolean {
+  return item.role === 'narrator';
+}
 
 export interface SpeechQueueOptions {
   /** 原文念完后是否按顺序念题干（和真题一样，选项不念）；默认 true */
@@ -115,6 +136,7 @@ export const questionPrefix = (index: number): string => `Question ${index + 1}.
 /**
  * 把稿子展开成朗读队列：先按 script 顺序念原文；readQuestions 打开时（默认），
  * 再由旁白 NARRATOR_ROLE 按顺序逐题念 "Question n. 题干"，选项不念。
+ * 稿子条 role = 'speaker'；念题条 role = 'narrator'，另带 displayText（题干纯文本，给界面显示）。
  * speaker 不在角色表里的段（schema 已经拦住，理论上不会出现）会被跳过。
  */
 export function toSpeechQueue(
@@ -131,6 +153,7 @@ export function toSpeechQueue(
     if (!role) continue;
     out.push({
       kind: 'script',
+      role: 'speaker',
       speaker: role.id,
       name: role.name,
       gender: role.gender,
@@ -142,11 +165,13 @@ export function toSpeechQueue(
       const stem = cleanSpeechText(q.stem);
       out.push({
         kind: 'question',
+        role: 'narrator',
         questionIndex,
         speaker: NARRATOR_ROLE.id,
         name: NARRATOR_ROLE.name,
         gender: NARRATOR_ROLE.gender,
         text: stem ? `${questionPrefix(questionIndex)} ${stem}` : questionPrefix(questionIndex),
+        displayText: plainStem(q.stem),
       });
     });
   return out;
