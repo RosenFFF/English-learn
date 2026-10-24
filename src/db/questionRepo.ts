@@ -80,13 +80,16 @@ export async function insertAttempt(db: SqlDb, a: AttemptRow): Promise<void> {
   await db.runAsync(insertAttemptSql, attemptValues(a));
 }
 
-/** 某道题的全部作答，最新的在前 */
+/**
+ * 某道题的全部作答，最新的在前；同一时间戳按 id 降序定一个确定的次序
+ * （和 listOpenMistakes 取「最近一次」的次序一致，第一条就是错题本看的那条）。
+ */
 export async function listAttemptsForQuestion(
   db: SqlDb,
   questionId: string,
 ): Promise<AttemptRow[]> {
   return db.getAllAsync<AttemptRow>(
-    'SELECT * FROM attempt WHERE question_id = ? ORDER BY submitted_at DESC, id',
+    'SELECT * FROM attempt WHERE question_id = ? ORDER BY submitted_at DESC, id DESC',
     [questionId],
   );
 }
@@ -186,6 +189,8 @@ export async function listRecentTopics(
  * 的列出来（主观题在页面上带「待重练」标签，wrong_count 保持 0），
  * 最近做的在前。作答记录只追加不修改：重做全对（或主观题 ≥ 9 分）会写一条新作答，
  * 这道题的最近一次作答就「过了」，自然从列表里消失，练习记录和统计不受影响。
+ * 同一时间戳按 id 定一个确定的次序（submitted_at DESC, id DESC），不会列两遍。id 是随机 uuid，
+ * 这个次序不代表写入先后；不用 rowid，因为备份恢复后 rowid 会重排，id 不变。
  * 软删除的题也列（错题还在，原题能打开）。行的含义见 src/lib/exam/mistakes.ts。
  */
 export async function listOpenMistakes(
