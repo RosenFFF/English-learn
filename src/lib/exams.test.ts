@@ -47,6 +47,7 @@ describe('考试与板块元数据', () => {
       'reading',
       'translation',
       'writing',
+      'mistakes',
     ]);
     for (const v of ['', 'Vocab', 'today', '../vocab', 'constructor', 'toString', null, 1]) {
       expect(isSectionId(v)).toBe(false);
