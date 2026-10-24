@@ -127,7 +127,12 @@ export async function prepareReadingSet<T extends ReadingQuestionType>(
   type: T,
   opts: PrepareOptions,
 ): Promise<PreparedReading> {
-  const { parts, skipped } = await prepareQuestions(user, type, READING_TYPE_META[type].parts, opts);
+  const { parts, skipped } = await prepareQuestions(
+    user,
+    type,
+    READING_TYPE_META[type].parts,
+    opts,
+  );
   return { set: { id: uuidv4(), type, parts } as unknown as ReadingSet, skipped };
 }
 

@@ -40,9 +40,9 @@ test('首次启动选考试 → 六级首页 → 词汇 → 背词', async ({ pa
   await page.screenshot({ path: `${SHOTS}/02-cet6-home.png` });
 
   // 未上线板块：占位页说明这个板块练什么，返回首页
-  await page.getByTestId('section-translation').click();
-  await expect(page).toHaveURL(/\/section\/translation$/);
-  await expect(page.getByTestId('section-page-translation')).toContainText('汉译英');
+  await page.getByTestId('section-listening').click();
+  await expect(page).toHaveURL(/\/section\/listening$/);
+  await expect(page.getByTestId('section-page-listening')).toContainText('长对话');
   await page.getByTestId('section-back').click();
   await expect(page).toHaveURL(/\/home$/);
 
