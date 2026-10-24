@@ -60,6 +60,7 @@ export {
   type ReadingSet,
   type SheetAction,
 } from '../../lib/exam/reading';
+export { plainStem } from '../../lib/exam/sanitize';
 export type {
   BankedClozePayload,
   CarefulReadingPayload,
