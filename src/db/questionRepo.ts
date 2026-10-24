@@ -1,5 +1,6 @@
 /** 题库（question）与作答记录（attempt）的仓储：这两张表的 SQL 都在这里。 */
 import type { ExamId } from '../lib/exams';
+import type { OpenMistakeRow } from '../lib/exam/mistakes';
 import type { AttemptRow, PracticeSectionId, QuestionRow, QuestionType } from '../lib/exam/types';
 import type { SqlDb, SqlValue } from './types';
 
@@ -172,4 +173,32 @@ export async function listRecentTopics(
     out.push(t);
   }
   return out;
+}
+
+/**
+ * 错题本：每道题只看最近一次作答——客观题 wrong_count > 0、主观题 needs_redo = 1 的列出来，
+ * 最近做的在前。作答记录只追加不修改：重做全对（或主观题 ≥ 9 分）会写一条新作答，
+ * 这道题的最近一次作答就「过了」，自然从列表里消失，练习记录和统计不受影响。
+ * 软删除的题也列（错题还在，原题能打开）。行的含义见 src/lib/exam/mistakes.ts。
+ */
+export async function listOpenMistakes(
+  db: SqlDb,
+  exam: ExamId,
+  limit = 200,
+): Promise<OpenMistakeRow[]> {
+  return db.getAllAsync<OpenMistakeRow>(
+    `SELECT a.question_id, a.exam, a.section, a.type, a.score, a.max_score,
+       a.wrong_count, a.needs_redo, a.submitted_at,
+       (SELECT COUNT(*) FROM attempt m
+          WHERE m.question_id = a.question_id AND (m.wrong_count > 0 OR m.needs_redo = 1)) AS miss_times,
+       q.schema_version, q.payload
+     FROM attempt a JOIN question q ON q.id = a.question_id
+     WHERE a.exam = ?
+       AND a.id = (SELECT l.id FROM attempt l WHERE l.question_id = a.question_id
+                   ORDER BY l.submitted_at DESC, l.id DESC LIMIT 1)
+       AND (a.wrong_count > 0 OR a.needs_redo = 1)
+     ORDER BY a.submitted_at DESC, a.question_id
+     LIMIT ?`,
+    [exam, limit],
+  );
 }
