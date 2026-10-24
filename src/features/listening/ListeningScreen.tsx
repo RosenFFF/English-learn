@@ -21,8 +21,11 @@ import {
   answeredCount,
   describeListeningError,
   gradeListening,
+  isNarrator,
   letterOf,
+  narratedQuestion,
   needsExitConfirm,
+  plainStem,
   redoOutcomeText,
   startListeningRedo,
   startListeningSet,
@@ -63,7 +66,7 @@ function Transcript({ snap, player }: { snap: PlayerSnapshot; player: SpeechPlay
   const [open, setOpen] = useState(false);
   const lines = snap.items
     .map((item, index) => ({ item, index }))
-    .filter((x) => x.item.kind === 'script');
+    .filter((x) => !isNarrator(x.item));
   return (
     <Card style={{ gap: space.md }}>
       <PressableScale
@@ -154,7 +157,7 @@ function Attempt({
 
   // 念到过的最大题号：念题打开时题干念到才显示
   const [readUpTo, setReadUpTo] = useState(-1);
-  const reading = snap.current?.kind === 'question' ? snap.current.questionIndex : null;
+  const reading = narratedQuestion(snap.current)?.questionIndex ?? null;
   // 渲染时调整（React 推荐的「根据变化更新 state」写法，不用 effect）
   if (reading !== null && reading > readUpTo) setReadUpTo(reading);
 
@@ -259,7 +262,7 @@ function Attempt({
                     style={[{ fontWeight: '600' }, breakLongWords]}
                     testID={`listening-stem-${qi + 1}`}
                   >
-                    {q.stem}
+                    {plainStem(q.stem)}
                   </Txt>
                 ) : (
                   <Txt variant="body" tone="tertiary" testID={`listening-stem-${qi + 1}`}>

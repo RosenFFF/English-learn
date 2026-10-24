@@ -27,8 +27,20 @@ const TYPE_MARK: Record<ListeningType, string> = {
   lecture: '题型：听力·讲座',
 };
 
+/** 长对话的变体：第 1 题题干带 Markdown（大模型偶尔会这样写），界面要显示成纯文本 */
+const MD_STEM = '**Why** does the man look _tired_?';
+const MD_STEM_PLAIN = 'Why does the man look tired?';
+const MARKDOWN_CONVERSATION = {
+  ...DEMO_LONG_CONVERSATION,
+  questions: DEMO_LONG_CONVERSATION.questions.map((q, i) =>
+    i === 0 ? { ...q, stem: MD_STEM } : q,
+  ),
+};
+
+type MockVariant = 'demo' | 'stress' | 'markdown';
+
 /** 模拟大模型：按提示词里的题型返回 __testutils__ 里的原创听力稿子 */
-async function mockLlm(page: Page, stress = false): Promise<ListeningType[]> {
+async function mockLlm(page: Page, variant: MockVariant = 'demo'): Promise<ListeningType[]> {
   const prompts: ListeningType[] = [];
   await page.route(`${MOCK_LLM}/**`, async (route) => {
     const headers = {
@@ -49,10 +61,12 @@ async function mockLlm(page: Page, stress = false): Promise<ListeningType[]> {
       if (user.length === 1) prompts.push(type);
       content = JSON.stringify(
         type === 'long_conversation'
-          ? DEMO_LONG_CONVERSATION
+          ? variant === 'markdown'
+            ? MARKDOWN_CONVERSATION
+            : DEMO_LONG_CONVERSATION
           : type === 'passage'
             ? DEMO_PASSAGE
-            : stress
+            : variant === 'stress'
               ? STRESS_LECTURE
               : DEMO_LECTURE,
       );
@@ -317,10 +331,13 @@ test('选题型 → 分角色朗读、念题高亮、播放控件 → 作答交�
   await expect(page.getByTestId('listening-stem-1')).toHaveText(CONV.questions[0]!.stem);
   await expect(page.getByTestId('listening-stem-2')).toHaveText('题干会在原文念完后念出');
   await expect(page.getByTestId('listening-player-status')).toHaveText('念题 · 第 1 题');
+  // 面板上显示正在念的题干（displayText，不带 "Question 1." 前缀）
+  await expect(page.getByTestId('listening-player-caption')).toHaveText(CONV.questions[0]!.stem);
   await page.screenshot({ path: `${SHOTS}/02a-player-reading-question.png` });
   await finish(page);
   await expect(page.getByTestId('listening-q-2')).toContainText('第 2 题 · 正在念');
   await expect(page.getByTestId('listening-q-1')).not.toContainText('正在念');
+  await expect(page.getByTestId('listening-player-caption')).toHaveText(CONV.questions[1]!.stem);
   await page.getByTestId('listening-q-2').scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${SHOTS}/02-playing-highlight.png` });
   const all = await spoken(page);
@@ -446,6 +463,34 @@ test('听力做错进错题本 → 点进去重做原题（不调大模型）→
   expect(errors).toEqual([]);
 });
 
+test('题干带 Markdown：念题时面板和题目卡片都显示纯文本，朗读不念符号', async ({ page }) => {
+  await mockSpeech(page);
+  await mockLlm(page, 'markdown');
+  await toHomeConfigured(page);
+  await page.getByTestId('section-listening').click();
+  await page.getByTestId('listening-type-long_conversation').click();
+  await expect(page.getByTestId('listening-play')).toBeVisible({ timeout: 30_000 });
+  // 原文还没念时面板不显示题干
+  await page.getByTestId('listening-play').click();
+  await expect.poll(async () => (await spoken(page)).length).toBe(1);
+  await expect(page.getByTestId('listening-player-caption')).toHaveCount(0);
+  await finish(page, CONV.script.length);
+  await expect
+    .poll(async () => (await lastSpoken(page))?.text)
+    .toBe(`Question 1. ${MD_STEM_PLAIN}`);
+  await expect(page.getByTestId('listening-player-caption')).toHaveText(MD_STEM_PLAIN);
+  await expect(page.getByTestId('listening-stem-1')).toHaveText(MD_STEM_PLAIN);
+  await expect(page.getByText(MD_STEM)).toHaveCount(0);
+  // 暂停时题干还在；念完全部后消失
+  await page.getByTestId('listening-play').click();
+  await expect(page.getByTestId('listening-player-status')).toHaveText('已暂停 · 念题 · 第 1 题');
+  await expect(page.getByTestId('listening-player-caption')).toHaveText(MD_STEM_PLAIN);
+  await page.getByTestId('listening-play').click();
+  await finish(page, CONV.questions.length);
+  await expect(page.getByTestId('listening-player-status')).toHaveText(/^已念完/);
+  await expect(page.getByTestId('listening-player-caption')).toHaveCount(0);
+});
+
 test('打不开的听力重做链接：中文原因和返回按钮', async ({ page }) => {
   await mockSpeech(page);
   await toHome(page);
@@ -481,7 +526,7 @@ test.describe('压测：360 宽、超长称呼和单词', () => {
   test.use({ viewport: { width: 360, height: 740 } });
   test('作答页和结果页（展开原文）都不横向溢出', async ({ page }) => {
     await mockSpeech(page);
-    await mockLlm(page, true);
+    await mockLlm(page, 'stress');
     await toHomeConfigured(page);
     await page.getByTestId('section-listening').click();
     await noHorizontalOverflow(page);

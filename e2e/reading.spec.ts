@@ -41,7 +41,11 @@ interface MockLlm {
  * 模拟大模型：按提示词里的题型返回 __testutils__ 里的原创测试题（仔细阅读按请求次序轮流两篇）。
  * 题目内容只存在于测试里，App 本身不带任何示例题。
  */
-async function mockLlm(page: Page, stress = false): Promise<MockLlm> {
+async function mockLlm(
+  page: Page,
+  stress = false,
+  carefulSet: readonly unknown[] = DEMO_CAREFUL,
+): Promise<MockLlm> {
   const prompts: MockLlm['prompts'] = [];
   let gate: Promise<void> | null = null;
   let failing = 0;
@@ -53,7 +57,7 @@ async function mockLlm(page: Page, stress = false): Promise<MockLlm> {
     }
     if (type === 'banked_cloze') return DEMO_BANKED_CLOZE;
     if (type === 'matching') return DEMO_MATCHING;
-    return DEMO_CAREFUL[careful++ % 2];
+    return carefulSet[careful++ % 2];
   };
   await page.route(`${MOCK_LLM}/**`, async (route) => {
     const headers = {
@@ -359,6 +363,25 @@ test('仔细阅读：两篇切换作答、全部答完提交、判分', async ({
   );
   await page.getByTestId('result-10').scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${SHOTS}/06-careful-graded.png` });
+});
+
+test('仔细阅读：题干里的 Markdown 显示成纯文本', async ({ page }) => {
+  const md = (stem: string) => `**${stem.replace(/\?$/, '')}** _today_?`;
+  const set = DEMO_CAREFUL.map((p) => ({
+    ...p,
+    questions: p.questions.map((q, i) => (i === 0 ? { ...q, stem: md(q.stem) } : q)),
+  }));
+  await mockLlm(page, false, set);
+  await toReadingConfigured(page);
+  await page.getByTestId('reading-type-careful_reading').click();
+  await expect(page.getByTestId('careful-1-A')).toBeVisible({ timeout: 30_000 });
+  const stem = page.getByTestId('careful-stem-1');
+  const text = (await stem.textContent())!;
+  expect(text).toMatch(/^1\. .+ today\?$/);
+  expect(text).not.toMatch(/[*_]/);
+  const plain = DEMO_CAREFUL.map((p) => `1. ${p.questions[0]!.stem.replace(/\?$/, '')} today?`);
+  expect(plain).toContain(text);
+  await expect(page.getByTestId('careful-stem-2')).not.toContainText('*');
 });
 
 test.describe('深色模式', () => {

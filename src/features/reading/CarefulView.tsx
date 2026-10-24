@@ -16,6 +16,7 @@ import {
 import {
   letterOf,
   partOffsets,
+  plainStem,
   type AnswerSheet,
   type GradeResult,
   type SetOf,
@@ -93,8 +94,12 @@ export function CarefulView({
               const r = grade?.items[index];
               return (
                 <Card key={qi} style={{ gap: space.md }}>
-                  <Txt variant="body" style={[{ fontWeight: '600' }, breakLongWords]}>
-                    {`${index + 1}. ${q.stem}`}
+                  <Txt
+                    variant="body"
+                    style={[{ fontWeight: '600' }, breakLongWords]}
+                    testID={`careful-stem-${index + 1}`}
+                  >
+                    {`${index + 1}. ${plainStem(q.stem)}`}
                   </Txt>
                   <View
                     style={{ gap: space.sm }}

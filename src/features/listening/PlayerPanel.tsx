@@ -3,24 +3,37 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ComponentProps } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { breakLongWords } from '../reading/parts';
 import { Card, Notice, PressableScale, ProgressBar, Segmented, Txt } from '../../ui/primitives';
 import { radius, space, usePalette } from '../../ui/theme';
-import { SPEECH_RATES, type PlayerSnapshot, type SpeechPlayer, type SpeechRate } from './service';
+import {
+  SPEECH_RATES,
+  narratedQuestion,
+  scriptLineCount,
+  type PlayerSnapshot,
+  type SpeechPlayer,
+  type SpeechRate,
+} from './service';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
+/** 旁白正在念（或暂停在）的题干纯文本（displayText），给面板显示；不在念题时返回 null */
+export function playerCaption(s: PlayerSnapshot): string | null {
+  return narratedQuestion(s.current)?.displayText || null;
+}
+
 /** 面板上那一行状态文字 */
 export function playerStatusText(s: PlayerSnapshot): string {
-  const scriptTotal = s.items.filter((i) => i.kind === 'script').length;
+  const scriptTotal = scriptLineCount(s.items);
   if (s.items.length === 0) return '没有可以朗读的内容';
   if (s.status === 'done') return '已念完，可以点播放从头再听';
   const cur = s.items[Math.min(s.index, s.items.length - 1)];
   if (s.status === 'idle' && s.index === 0) return `共 ${scriptTotal} 段原文 · 点播放开始`;
   if (!cur) return '';
-  const where =
-    cur.kind === 'question'
-      ? `念题 · 第 ${cur.questionIndex + 1} 题`
-      : `第 ${Math.min(s.index + 1, scriptTotal)}/${scriptTotal} 段 · ${cur.name}`;
+  const asked = narratedQuestion(cur);
+  const where = asked
+    ? `念题 · 第 ${asked.questionIndex + 1} 题`
+    : `第 ${Math.min(s.index + 1, scriptTotal)}/${scriptTotal} 段 · ${cur.name}`;
   return s.status === 'paused' ? `已暂停 · ${where}` : where;
 }
 
@@ -130,6 +143,7 @@ export function PlayerPanel({
   const total = snap.items.length;
   const progress = total ? Math.min(snap.index, total) / total : 0;
   const empty = total === 0;
+  const caption = playerCaption(snap);
   return (
     <Card style={{ gap: space.md }}>
       <View style={styles.head}>
@@ -146,6 +160,16 @@ export function PlayerPanel({
       >
         {playerStatusText(snap)}
       </Txt>
+      {caption ? (
+        <Txt
+          variant="body"
+          style={[{ fontWeight: '600' }, breakLongWords]}
+          numberOfLines={4}
+          testID="listening-player-caption"
+        >
+          {caption}
+        </Txt>
+      ) : null}
       <ProgressBar value={snap.status === 'done' ? 1 : progress} label="朗读进度" height={4} />
       <View style={styles.controls}>
         <IconButton
