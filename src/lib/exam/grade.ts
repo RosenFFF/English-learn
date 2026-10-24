@@ -1,14 +1,19 @@
 /**
  * 评分：客观题本地判分，不调用 LLM；翻译、写作调用 LLM 按六级 15 分制评分，结果同样用 zod 校验并重试。
+ * 主观题点评（v2）包含：总评、分项点评 criteria、逐句点评（翻译）/ 问题清单（写作）、改写示例 rewrite。
+ * 点评文字经过清洗和长度上限后才返回，可以直接存库（见 feedback.ts 的 subjectiveAttemptFields）。
  * 规则：客观题 wrongCount = 答错（含未答）的题数、needsRedo = false；
  * 主观题 wrongCount 固定 0（不进错题本），needsRedo = score < 9（待重练）。
  */
 import type { z } from 'zod';
 
 import { askJson, type LlmDeps } from './generate';
-import { essayGradingMessages, translationGradingMessages } from './prompts';
+import { essayGradingMessages, GRADE_PROMPT_VERSION, translationGradingMessages } from './prompts';
 import {
+  ESSAY_CRITERIA,
   essayFeedbackSchema,
+  FEEDBACK_VERSION,
+  TRANSLATION_CRITERIA,
   translationFeedbackSchema,
   type BankedClozePayload,
   type EssayFeedback,
@@ -112,6 +117,10 @@ export interface SubjectiveGrade<F> {
   needsRedo: boolean;
   feedback: F;
   model: string;
+  /** 点评结构版本（FEEDBACK_VERSION） */
+  feedbackVersion: number;
+  /** 评分 prompt 版本（GRADE_PROMPT_VERSION）；空白作答没调用模型时同样填当前版本 */
+  promptVersion: number;
 }
 
 function subjective<F extends { score: number }>(feedback: F, model: string): SubjectiveGrade<F> {
@@ -122,11 +131,39 @@ function subjective<F extends { score: number }>(feedback: F, model: string): Su
     needsRedo: feedback.score < REDO_THRESHOLD,
     feedback,
     model,
+    feedbackVersion: FEEDBACK_VERSION,
+    promptVersion: GRADE_PROMPT_VERSION,
   };
 }
 
 /** 没写任何内容：直接 0 分，不调用 LLM */
 const isBlank = (s: string): boolean => s.trim() === '';
+
+const NOT_ANSWERED = '未作答。';
+
+/** 空白作答的翻译点评（经 schema 校验，保证和模型给出的点评同样合规） */
+function blankTranslationFeedback(q: TranslationPayload): TranslationFeedback {
+  return translationFeedbackSchema.parse({
+    score: 0,
+    band: 0,
+    summary: NOT_ANSWERED,
+    criteria: TRANSLATION_CRITERIA.map((key) => ({ key, level: 'weak', comment: NOT_ANSWERED })),
+    sentences: [{ original: '（空）', problem: '未作答', improvement: q.reference }],
+    rewrite: q.reference,
+  });
+}
+
+/** 空白作答的写作点评 */
+function blankEssayFeedback(): EssayFeedback {
+  return essayFeedbackSchema.parse({
+    score: 0,
+    band: 0,
+    summary: NOT_ANSWERED,
+    criteria: ESSAY_CRITERIA.map((key) => ({ key, level: 'weak', comment: NOT_ANSWERED })),
+    issues: [],
+    rewrite: '(No answer was submitted, so there is nothing to rewrite.)',
+  });
+}
 
 /** 翻译评分。最终失败抛 ExamGenError；LlmError 原样抛出。 */
 export async function gradeTranslation(
@@ -135,16 +172,7 @@ export async function gradeTranslation(
   deps: LlmDeps,
 ): Promise<SubjectiveGrade<TranslationFeedback>> {
   const model = deps.cfg.model.trim();
-  if (isBlank(answer))
-    return subjective(
-      {
-        score: 0,
-        band: 0,
-        summary: '未作答。',
-        sentences: [{ original: '（空）', problem: '未作答', improvement: q.reference }],
-      },
-      model,
-    );
+  if (isBlank(answer)) return subjective(blankTranslationFeedback(q), model);
   const feedback = await askJson(deps, {
     messages: translationGradingMessages(q, answer),
     schema: translationFeedbackSchema as z.ZodType<TranslationFeedback>,
@@ -161,19 +189,10 @@ export async function gradeEssay(
   deps: LlmDeps,
 ): Promise<SubjectiveGrade<EssayFeedback>> {
   const model = deps.cfg.model.trim();
-  if (isBlank(answer))
-    return subjective(
-      {
-        score: 0,
-        summary: '未作答。',
-        issues: [],
-        rewrite: `（未作答，没有可改写的内容。题目：${q.title}）`,
-      },
-      model,
-    );
+  if (isBlank(answer)) return subjective(blankEssayFeedback(), model);
   const feedback = await askJson(deps, {
     messages: essayGradingMessages(q, answer),
-    schema: essayFeedbackSchema,
+    schema: essayFeedbackSchema as z.ZodType<EssayFeedback>,
     what: '写作评分',
     temperature: 0.2,
   });

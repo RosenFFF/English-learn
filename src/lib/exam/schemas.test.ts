@@ -1,15 +1,23 @@
 import {
+  V1_ESSAY_FEEDBACK,
+  V1_TRANSLATION_FEEDBACK,
   VALID_ESSAY_FEEDBACK,
   VALID_PAYLOADS,
   VALID_TRANSLATION_FEEDBACK,
 } from './__testutils__/fixtures';
 import {
+  CRITERION_LABEL,
+  ESSAY_CRITERIA,
   essayFeedbackSchema,
+  essayFeedbackV1Schema,
+  GENERATION_SCHEMAS,
   PAYLOAD_SCHEMAS,
   parsePayload,
   summarizeIssues,
+  TRANSLATION_CRITERIA,
   type PayloadOf,
   translationFeedbackSchema,
+  translationFeedbackV1Schema,
 } from './schemas';
 import { QUESTION_TYPES, type QuestionType } from './types';
 
@@ -303,10 +311,53 @@ describe('主观题评分结果 schema', () => {
       translationFeedbackSchema.safeParse({ ...VALID_TRANSLATION_FEEDBACK, band: 7 }).success,
     ).toBe(false);
   });
+  it('写作也要有档次，且和分数对得上', () => {
+    const { band: _omit, ...noBand } = VALID_ESSAY_FEEDBACK;
+    expect(essayFeedbackSchema.safeParse(noBand).success).toBe(false);
+    const r = essayFeedbackSchema.safeParse({ ...VALID_ESSAY_FEEDBACK, score: 13 });
+    expect(summarizeIssues(r.error!)).toMatch(/与档次 8 不符/);
+  });
   it('翻译至少点评一句', () => {
     expect(
       translationFeedbackSchema.safeParse({ ...VALID_TRANSLATION_FEEDBACK, sentences: [] }).success,
     ).toBe(false);
+  });
+  it('v2 必须有分项点评和改写示例', () => {
+    const { criteria: _c, ...noCriteria } = VALID_TRANSLATION_FEEDBACK;
+    const { rewrite: _r, ...noRewrite } = VALID_TRANSLATION_FEEDBACK;
+    expect(translationFeedbackSchema.safeParse(noCriteria).success).toBe(false);
+    expect(translationFeedbackSchema.safeParse(noRewrite).success).toBe(false);
+    expect(essayFeedbackSchema.safeParse({ ...VALID_ESSAY_FEEDBACK, rewrite: '  ' }).success).toBe(
+      false,
+    );
+  });
+  it('写作改写示例不能含中文', () => {
+    const r = essayFeedbackSchema.safeParse({ ...VALID_ESSAY_FEEDBACK, rewrite: 'Life 学习' });
+    expect(summarizeIssues(r.error!)).toMatch(/改写示例必须是英文/);
+  });
+  it('v1 存库 schema：新字段可选，但给了就照样校验', () => {
+    expect(translationFeedbackV1Schema.safeParse(V1_TRANSLATION_FEEDBACK).success).toBe(true);
+    expect(essayFeedbackV1Schema.safeParse(V1_ESSAY_FEEDBACK).success).toBe(true);
+    expect(translationFeedbackV1Schema.safeParse(VALID_TRANSLATION_FEEDBACK).success).toBe(true);
+    expect(essayFeedbackV1Schema.safeParse({ ...V1_ESSAY_FEEDBACK, criteria: [] }).success).toBe(
+      false,
+    );
+  });
+  it('维度常量和中文名一一对应', () => {
+    for (const k of [...TRANSLATION_CRITERIA, ...ESSAY_CRITERIA])
+      expect(CRITERION_LABEL[k]).toBeTruthy();
+  });
+});
+
+describe('BODY_SCHEMAS 派生', () => {
+  it.each(QUESTION_TYPES)('%s：读题 schema 的 topic 可选、生成 schema 的 topic 必填', (type) => {
+    const p = VALID_PAYLOADS[type] as Record<string, unknown>;
+    const { topic: _omit, ...noTopic } = p;
+    expect(PAYLOAD_SCHEMAS[type].safeParse(noTopic).success).toBe(true);
+    expect(GENERATION_SCHEMAS[type].safeParse(noTopic).success).toBe(false);
+    expect(GENERATION_SCHEMAS[type].safeParse({ ...noTopic, topic: 'campus life' }).success).toBe(
+      true,
+    );
   });
 });
 
