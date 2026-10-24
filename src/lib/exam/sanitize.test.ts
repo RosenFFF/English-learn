@@ -1,6 +1,7 @@
 import {
   cleanSpeechText,
   cleanText,
+  plainStem,
   promptText,
   stripSpeakerPrefix,
   TRUNCATION_MARK,
@@ -61,6 +62,51 @@ describe('promptText', () => {
   });
 });
 
+describe('plainStem', () => {
+  it.each([
+    ['What is the **main** idea?', 'What is the main idea?'],
+    ['What is the __main__ idea?', 'What is the main idea?'],
+    ['Why does the _man_ look *tired*?', 'Why does the man look tired?'],
+    ['What does `npm ci` do?', 'What does npm ci do?'],
+    ['What does ``a `tick` b`` mean?', 'What does a tick b mean?'],
+    ['See [the report](https://example.com/r?a=1) for details.', 'See the report for details.'],
+    ['See [the report][1] and <https://example.com>.', 'See the report and https://example.com.'],
+    ['![a chart](chart.png) What does it show?', 'a chart What does it show?'],
+    ['## What is the passage mainly about? ##', 'What is the passage mainly about?'],
+    [
+      '# Title\n\n- first point\n* second point\n+ third\n1. Which one?',
+      'Title first point second point third Which one?',
+    ],
+    ['> Quoted line\n> more', 'Quoted line more'],
+    ['---\nWhat next?', 'What next?'],
+    ['~~Wrong~~ Right?', 'Wrong Right?'],
+    ['  What   is\t\tit \n\n\n about ?  ', 'What is it about?'],
+    ['<b>Bold</b> stem<br/>here.', 'Bold stem here.'],
+  ])('%p → %p', (input, expected) => {
+    expect(plainStem(input)).toBe(expected);
+  });
+
+  it('保留正常的标点、撇号、括号、数字和填空线', () => {
+    for (const s of [
+      "Why didn't the woman's plan work?",
+      'What’s the speaker’s main point (in paragraph 2)?',
+      'Fill in: the ____ was "quite" good; 5 * 3 = 15, right?',
+      'Which is true: a < b, or b > c?',
+      'Use snake_case and file_name_2 here.',
+      'It costs $5.50 — about 30% less!',
+      '#1 and C# are fine; so is item #3.',
+      '2010 was a good year.',
+    ])
+      expect(plainStem(s)).toBe(s);
+  });
+
+  it('非字符串返回空串；全是标记返回空串', () => {
+    expect(plainStem(undefined)).toBe('');
+    expect(plainStem(42)).toBe('');
+    expect(plainStem('** ** `` ~~')).toBe('');
+  });
+});
+
 describe('cleanSpeechText', () => {
   it.each([
     ['Hello\u0000 world\u200b!', 'Hello world!'],
@@ -69,6 +115,9 @@ describe('cleanSpeechText', () => {
     ['<speak>Hi</speak> there 😀👍🏽 .', 'Hi there.'],
     ['line one\nline two', 'line one line two'],
     ['It costs (about) $5.', 'It costs (about) $5.'],
+    ['See [the report](https://x.y/z) now.', 'See the report now.'],
+    ['## Question\n- Why _not_?', 'Question Why not?'],
+    ["Don't [pause] stop.", "Don't stop."],
   ])('%p → %p', (input, expected) => {
     expect(cleanSpeechText(input)).toBe(expected);
   });

@@ -2,7 +2,9 @@
  * 文本清洗（纯 TS，不依赖 zod）：
  * - cleanText：大模型返回的点评文字进库前用，去控制字符、规整空白、按字符数截断；
  * - promptText：任何要拼进 prompt 的文字（学生作答、题目内容）用，在 cleanText 的基础上把
- *   prompt 里用作分隔的标签（<answer> 等）中和掉，防止作答「闭合标签」后冒充指令。
+ *   prompt 里用作分隔的标签（<answer> 等）中和掉，防止作答「闭合标签」后冒充指令；
+ * - plainStem：题干（阅读、听力）给界面显示的纯文本，去掉 Markdown 和多余空白；
+ * - cleanSpeechText：给 TTS 朗读的文字，在 plainStem 的基础上再去掉舞台说明、emoji 等。
  * 长度一律按 Unicode 码点算（Array.from），不会把代理对切成半个字。
  */
 
@@ -68,8 +70,73 @@ export function promptText(input: unknown, max: number): string {
   );
 }
 
-/** Markdown / HTML / 舞台说明等不适合 TTS 朗读的标记 */
+/** HTML 标签（含 <speak> 之类的 SSML） */
 const HTML_TAG = /<[^>]{0,200}>/g;
+/** 像标签的 <b>、</p>、<br/>（字母开头）；显示用，不会误删 "a < b > c" 这样的比较 */
+const HTML_ELEMENT = /<\/?[A-Za-z][^<>\n]{0,200}>/g;
+
+// ---------- Markdown → 纯文本 ----------
+/** 行首标记：标题 #、引用 >、列表符号（- * + • 和 1. 1)）、分隔线 */
+const MD_HEADING = /^ {0,3}#{1,6}(?:\s+|$)/;
+const MD_HEADING_CLOSE = /\s+#+\s*$/;
+const MD_QUOTE = /^ {0,3}(?:>\s?)+/;
+const MD_LIST = /^\s*(?:[-*+•]|\d{1,3}[.)])\s+/;
+const MD_RULE = /^\s*(?:[-*_]\s*){3,}$/;
+/** 图片 ![alt](url) 留 alt；链接 [文字](url)、[文字][ref] 留文字；<https://…> 留网址 */
+const MD_IMAGE = /!\[([^\]\n]*)\]\([^)\n]*\)/g;
+const MD_LINK = /\[([^\]\n]+)\]\([^)\n]*\)/g;
+const MD_REF_LINK = /\[([^\]\n]+)\]\[[^\]\n]*\]/g;
+const MD_AUTOLINK = /<((?:https?:\/\/|mailto:)[^>\s]+)>/gi;
+/** 行内强调：`代码`、**加粗** / __加粗__、*斜体* / _斜体_、~~删除线~~（标记要成对、紧贴文字） */
+const MD_CODE = /(`+)([^`\n]*?[^`\s][^`\n]*?)\1/g;
+const MD_STRONG_STAR = /\*\*(?![\s*])([^\n]*?[^\s*])\*\*/g;
+const MD_STRONG_UNDERSCORE = /(^|[^\p{L}\p{N}_])__(?![\s_])([^\n]*?[^\s_])__(?![\p{L}\p{N}_])/gu;
+const MD_EM_STAR = /\*(?=[^\s*])([^*\n]*?[^\s*])\*/g;
+/** _斜体_ 只认词边界上的下划线：snake_case、填空线 ____ 不动 */
+const MD_EM_UNDERSCORE = /(^|[^\p{L}\p{N}_])_(?=[^\s_])([^_\n]*?[^\s_])_(?![\p{L}\p{N}_])/gu;
+const MD_STRIKE = /~~(?=\S)([^\n]*?\S)~~/g;
+/** 成对规则没吃掉的残留标记：反引号、连续的 * 和 ~ */
+const MD_LEFTOVER = /`+|\*{2,}|~{2,}/g;
+
+function stripMarkdownLine(line: string): string {
+  if (MD_RULE.test(line)) return '';
+  const s = line.replace(MD_QUOTE, '');
+  if (MD_HEADING.test(s)) return s.replace(MD_HEADING, '').replace(MD_HEADING_CLOSE, '');
+  return s.replace(MD_LIST, '');
+}
+
+/**
+ * 题干给界面显示用的纯文本（阅读、听力题干都适用；纯函数，不改存库内容）：
+ * 1. cleanText 规整换行和控制字符；
+ * 2. 去掉行首的标题 #、引用 >、列表符号和分隔线；
+ * 3. 链接、图片留文字，去掉 HTML 标签，去掉 `代码`、**加粗**、_斜体_、~~删除线~~ 的标记；
+ * 4. 所有空白合并成一个空格，标点前的空格去掉，去首尾空白。
+ * 正常的标点、撇号（don't、’s）、括号、snake_case 和填空线 ____ 原样保留。非字符串返回空串。
+ */
+export function plainStem(input: unknown): string {
+  return cleanText(input, { max: Number.MAX_SAFE_INTEGER })
+    .split('\n')
+    .map(stripMarkdownLine)
+    .join('\n')
+    .replace(MD_IMAGE, '$1')
+    .replace(MD_LINK, '$1')
+    .replace(MD_REF_LINK, '$1')
+    .replace(MD_AUTOLINK, '$1')
+    .replace(HTML_ELEMENT, ' ')
+    .replace(MD_CODE, '$2')
+    .replace(MD_STRONG_STAR, '$1')
+    .replace(MD_STRONG_UNDERSCORE, '$1$2')
+    .replace(MD_EM_STAR, '$1')
+    .replace(MD_EM_UNDERSCORE, '$1$2')
+    .replace(MD_STRIKE, '$1')
+    .replace(MD_LEFTOVER, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .trim();
+}
+
+// ---------- 朗读 ----------
+/** 舞台说明、残留的 Markdown 符号、emoji 等不适合 TTS 朗读的内容 */
 const STAGE_DIRECTION =
   /\[[^\]\n]{0,80}\]|\((?:pause|laughs?|laughing|sighs?|music|applause|inaudible|coughs?)[^)\n]{0,40}\)/giu;
 const MARKDOWN_MARKS = /[*_#`~|]+/g;
@@ -77,12 +144,12 @@ const PICTOGRAPHIC =
   /(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|\uFE0F)+/gu;
 
 /**
- * 给 TTS 朗读的文字：cleanText（单行）之后再去掉 HTML 标签、[舞台说明] 和 (pause) 之类的括注、
- * Markdown 符号、emoji，最后合并空白。
+ * 给 TTS 朗读的文字：先 plainStem（去 Markdown、HTML 标签，链接留文字，合并空白），
+ * 再去掉 [舞台说明] 和 (pause) 之类的括注、残留的 Markdown 符号、emoji，最后合并空白。
  * 不截断（稿子长度由 schema 校验，超长算不合格，不能悄悄截掉影响答案）。
  */
 export function cleanSpeechText(input: unknown): string {
-  return cleanText(input, { max: Number.MAX_SAFE_INTEGER, multiline: false })
+  return plainStem(input)
     .replace(HTML_TAG, ' ')
     .replace(STAGE_DIRECTION, ' ')
     .replace(MARKDOWN_MARKS, ' ')
