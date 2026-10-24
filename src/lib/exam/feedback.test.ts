@@ -67,10 +67,10 @@ describe('parseStoredFeedback', () => {
     }
   });
 
-  it('v1 写作老记录（没有 band、criteria）能读', () => {
+  it('v1 写作老记录（没有 band、criteria）能读，band 按分数补上', () => {
     const r = parseStoredFeedback('essay', JSON.stringify(V1_ESSAY_FEEDBACK));
-    expect(r).toEqual({ ok: true, version: 1, feedback: V1_ESSAY_FEEDBACK });
-    if (r.ok) expect(r.feedback.band).toBeUndefined();
+    expect(r).toEqual({ ok: true, version: 1, feedback: { ...V1_ESSAY_FEEDBACK, band: 8 } });
+    if (r.ok) expect(r.feedback.criteria).toBeUndefined();
   });
 
   it('v1 记录里的文字同样被清洗', () => {
@@ -81,12 +81,20 @@ describe('parseStoredFeedback', () => {
     expect(r.ok && r.feedback.summary).toBe('总评');
   });
 
-  it('v1 记录分数和档次对不上仍然拒绝', () => {
+  it('v1 记录里存的 band 与分数不符时按分数重新算，不拒绝', () => {
     const r = parseStoredFeedback(
       'translation',
       JSON.stringify({ ...V1_TRANSLATION_FEEDBACK, score: 14 }),
     );
-    expect(r.ok).toBe(false);
+    expect(r.ok && r.feedback.band).toBe(14);
+  });
+
+  it('v2 记录里的 band 同样按分数重新算', () => {
+    const r = parseStoredFeedback(
+      'essay',
+      JSON.stringify({ version: 2, ...VALID_ESSAY_FEEDBACK, band: 0 }),
+    );
+    expect(r.ok && r.feedback.band).toBe(8);
   });
 
   it('v2 记录缺 criteria 时拒绝（v2 字段必须齐全）', () => {

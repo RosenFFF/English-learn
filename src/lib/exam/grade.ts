@@ -145,7 +145,6 @@ const NOT_ANSWERED = '未作答。';
 function blankTranslationFeedback(q: TranslationPayload): TranslationFeedback {
   return translationFeedbackSchema.parse({
     score: 0,
-    band: 0,
     summary: NOT_ANSWERED,
     criteria: TRANSLATION_CRITERIA.map((key) => ({ key, level: 'weak', comment: NOT_ANSWERED })),
     sentences: [{ original: '（空）', problem: '未作答', improvement: q.reference }],
@@ -157,7 +156,6 @@ function blankTranslationFeedback(q: TranslationPayload): TranslationFeedback {
 function blankEssayFeedback(): EssayFeedback {
   return essayFeedbackSchema.parse({
     score: 0,
-    band: 0,
     summary: NOT_ANSWERED,
     criteria: ESSAY_CRITERIA.map((key) => ({ key, level: 'weak', comment: NOT_ANSWERED })),
     issues: [],

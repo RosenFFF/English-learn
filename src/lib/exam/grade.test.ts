@@ -231,10 +231,32 @@ describe('分项点评、改写示例与校验（点评 v2）', () => {
     expect(fn).toHaveBeenCalledTimes(3);
   });
 
-  it('写作分数与档次不符时重试', async () => {
-    const { chat, calls } = fakeChat(JSON.stringify({ ...ef, band: 14 }), JSON.stringify(ef));
-    await expect(gradeEssay(essay, 'x', { cfg, chat })).resolves.toMatchObject({ score: 8 });
-    expect(calls[1][3].content).toMatch(/与档次 14 不符/);
+  it('模型不返回 band 也能通过，band 由代码按分数填入（翻译、写作）', async () => {
+    const { band: _tb, ...tNoBand } = tf;
+    const { band: _eb, ...eNoBand } = ef;
+    const t = fakeChat(JSON.stringify({ ...tNoBand, score: 13 }));
+    const tg = await gradeTranslation(translation, 'x', { cfg, chat: t.chat });
+    expect(tg.feedback).toMatchObject({ score: 13, band: 14 });
+    expect(t.fn).toHaveBeenCalledTimes(1);
+    const e = fakeChat(JSON.stringify(eNoBand));
+    const eg = await gradeEssay(essay, 'x', { cfg, chat: e.chat });
+    expect(eg.feedback).toMatchObject({ score: 8, band: 8 });
+    expect(e.fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('模型多给的 band 与分数不符或不合法时忽略，不重试', async () => {
+    const e = fakeChat(JSON.stringify({ ...ef, band: 14 }));
+    await expect(gradeEssay(essay, 'x', { cfg, chat: e.chat })).resolves.toMatchObject({
+      score: 8,
+      feedback: { band: 8 },
+    });
+    expect(e.fn).toHaveBeenCalledTimes(1);
+    const t = fakeChat(JSON.stringify({ ...tf, score: 4, band: 'excellent' }));
+    await expect(gradeTranslation(translation, 'x', { cfg, chat: t.chat })).resolves.toMatchObject({
+      feedback: { score: 4, band: 5 },
+      needsRedo: true,
+    });
+    expect(t.fn).toHaveBeenCalledTimes(1);
   });
 
   it('写作缺分项点评时重试，重试用完抛 ExamGenError', async () => {
@@ -287,6 +309,7 @@ describe('分项点评、改写示例与校验（点评 v2）', () => {
     const e = await gradeEssay(essay, '', { cfg, chat });
     expect(essayFeedbackSchema.safeParse(e.feedback).success).toBe(true);
     expect(e).toMatchObject({ score: 0, needsRedo: true, feedback: { band: 0, issues: [] } });
+    expect(t.feedback.band).toBe(0);
     expect(fn).not.toHaveBeenCalled();
   });
 
@@ -300,7 +323,8 @@ describe('分项点评、改写示例与校验（点评 v2）', () => {
     const e = fakeChat(JSON.stringify(ef));
     await gradeEssay(essay, 'x', { cfg, chat: e.chat });
     expect(e.calls[0][1].content).toMatch(/"content"（切题与内容）/);
-    expect(e.calls[0][1].content).toMatch(/"band"/);
+    expect(user).not.toMatch(/"band"/);
+    expect(e.calls[0][1].content).not.toMatch(/"band"/);
   });
 });
 

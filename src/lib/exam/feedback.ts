@@ -52,7 +52,8 @@ export type StoredFeedbackResult<T extends SubjectiveType> =
 /**
  * 读 attempt.feedback。
  * - null / 空串：ok: false（评分失败或没有点评）
- * - 没有 version：按 v1 读（criteria 可选；翻译 rewrite 可选；写作 band 可选）
+ * - 没有 version：按 v1 读（criteria 可选；翻译 rewrite 可选）
+ * - band 一律按 score 重新算，存库 JSON 里的 band 忽略
  * - version 2：按当前结构严格读
  * - version 比 FEEDBACK_VERSION 新或不合法、不是 JSON、校验不过：ok: false 和中文原因
  * 读出的文字同样经过清洗和截断。

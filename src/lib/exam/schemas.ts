@@ -268,7 +268,8 @@ export type Question = { [T in QuestionType]: { type: T; payload: PayloadOf<T> }
 /**
  * 点评 JSON 的结构版本，随点评一起存进 attempt.feedback（顶层 version 字段）。
  * v1：最初的结构（翻译：score、band、summary、sentences；写作：score、summary、issues、rewrite），存库时没有 version。
- * v2：两种题型都增加分项点评 criteria；翻译增加整段改写示例 rewrite；写作增加档次 band。
+ * v2：两种题型都增加分项点评 criteria；翻译增加整段改写示例 rewrite。
+ * 档次 band 两种题型都由代码按 score 算（bandForScore），不让模型返回；读出的点评总是带 band。
  * 读库用 parseStoredFeedback（src/lib/exam/feedback.ts）：没有 version 的按 v1 宽松读，新字段可能缺。
  */
 export const FEEDBACK_VERSION = 2;
@@ -337,21 +338,20 @@ const englishRewrite = fbText(FEEDBACK_LIMITS.rewrite).refine(
 );
 
 const score15 = z.number().min(0, '分数不能小于 0').max(SUBJECTIVE_MAX_SCORE, '分数不能大于 15');
-const band = z.union(
-  BANDS.map((b) => z.literal(b)) as [z.ZodLiteral<Band>, ...z.ZodLiteral<Band>[]],
-);
-
-/** 分数必须落在档次范围内 */
-function checkBand(v: { score: number; band?: Band }, ctx: z.RefinementCtx): void {
-  if (v.band === undefined) return;
-  const [lo, hi] = BAND_RANGE[v.band];
-  if (v.score < lo || v.score > hi)
-    ctx.addIssue({
-      code: 'custom',
-      message: `分数 ${v.score} 与档次 ${v.band} 不符（应在 ${lo} 到 ${hi} 之间）`,
-      path: ['score'],
-    });
+/**
+ * 按分数算档次：从高到低取第一个下限不超过分数的档次（与 BAND_RANGE 一致，边界分归高档，
+ * 如 12.5 → 14 档、9.5 → 11 档、0.5 → 2 档、0 → 0）。档次一律由代码算，不让模型返回。
+ */
+export function bandForScore(score: number): Band {
+  for (const b of BANDS) if (score >= BAND_RANGE[b][0]) return b;
+  return 0;
 }
+
+/** 校验通过后按 score 填入 band（模型或存库 JSON 里自带的 band 一律忽略） */
+const withBand = <T extends { score: number }>(v: T): T & { band: Band } => ({
+  ...v,
+  band: bandForScore(v.score),
+});
 
 /** 分项点评：每个维度恰好一条，输出按 keys 的顺序排好 */
 function criteriaSchema<K extends Criterion>(keys: readonly [K, ...K[]]) {
@@ -392,11 +392,10 @@ const essayIssue = z.object({
   suggestion: fbText(FEEDBACK_LIMITS.item),
 });
 
-/** 翻译点评（v2，模型输出和 v2 存库都用这一套） */
+/** 翻译点评（v2，模型输出和 v2 存库都用这一套）；band 由代码按 score 填入 */
 export const translationFeedbackSchema = z
   .object({
     score: score15,
-    band,
     /** 总评 */
     summary: fbText(FEEDBACK_LIMITS.comment),
     /** 分项点评：忠实原文、词汇、语法、通顺连贯 */
@@ -406,13 +405,12 @@ export const translationFeedbackSchema = z
     /** 改写示例：在学生译文基础上修改后的整段译文（英文） */
     rewrite: englishRewrite,
   })
-  .superRefine(checkBand);
+  .transform(withBand);
 
-/** 写作点评（v2） */
+/** 写作点评（v2）；band 由代码按 score 填入 */
 export const essayFeedbackSchema = z
   .object({
     score: score15,
-    band,
     /** 总评 */
     summary: fbText(FEEDBACK_LIMITS.comment),
     /** 分项点评：切题与内容、结构与衔接、词汇、语法 */
@@ -422,33 +420,31 @@ export const essayFeedbackSchema = z
     /** 改写示例：保留学生思路改写的全文（英文） */
     rewrite: englishRewrite,
   })
-  .superRefine(checkBand);
+  .transform(withBand);
 
 /**
- * v1 存库点评（没有 version 字段）：v2 新增的字段可选，写作 band 可选、改写不查中文。
+ * v1 存库点评（没有 version 字段）：v2 新增的字段可选、改写不查中文；band 同样按 score 重新算（老记录里存的 band 忽略）。
  * 只用于读老记录，不用于校验模型输出。
  */
 export const translationFeedbackV1Schema = z
   .object({
     score: score15,
-    band,
     summary: fbText(FEEDBACK_LIMITS.comment),
     criteria: criteriaSchema(TRANSLATION_CRITERIA).optional(),
     sentences: capItems(translationSentence),
     rewrite: fbText(FEEDBACK_LIMITS.rewrite).optional(),
   })
-  .superRefine(checkBand);
+  .transform(withBand);
 
 export const essayFeedbackV1Schema = z
   .object({
     score: score15,
-    band: band.optional(),
     summary: fbText(FEEDBACK_LIMITS.comment),
     criteria: criteriaSchema(ESSAY_CRITERIA).optional(),
     issues: capItems(essayIssue),
     rewrite: fbText(FEEDBACK_LIMITS.rewrite),
   })
-  .superRefine(checkBand);
+  .transform(withBand);
 
 export const FEEDBACK_SCHEMAS = {
   translation: translationFeedbackSchema,
@@ -464,7 +460,7 @@ export const FEEDBACK_V1_SCHEMAS = {
 export type TranslationFeedback = z.output<typeof translationFeedbackSchema>;
 export type EssayFeedback = z.output<typeof essayFeedbackSchema>;
 export type FeedbackOf<T extends SubjectiveType> = z.output<(typeof FEEDBACK_SCHEMAS)[T]>;
-/** 从库里读出的点评：v1 老记录可能缺 criteria、rewrite（翻译）、band（写作） */
+/** 从库里读出的点评：v1 老记录可能缺 criteria、rewrite（翻译）；band 总是有（按 score 算） */
 export type StoredFeedbackOf<T extends SubjectiveType> = z.output<(typeof FEEDBACK_V1_SCHEMAS)[T]>;
 export type CriterionFeedback<K extends Criterion = Criterion> = {
   key: K;

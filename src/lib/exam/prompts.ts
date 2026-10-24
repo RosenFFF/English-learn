@@ -149,7 +149,7 @@ export function retryMessage(problem: string): ChatMessage {
 /**
  * 评分 prompt 版本。
  * v1：总评 + 逐句点评（翻译）/ 问题清单 + 改写（写作）。
- * v2：增加分项点评 criteria、翻译整段改写 rewrite、写作档次 band；嵌入文字统一清洗、限长并中和分隔标签。
+ * v2：增加分项点评 criteria、翻译整段改写 rewrite，不再要求模型返回 band（由代码按分数算）；嵌入文字统一清洗、限长并中和分隔标签。
  */
 export const GRADE_PROMPT_VERSION = 2;
 
@@ -214,7 +214,7 @@ export function translationGradingMessages(q: TranslationPayload, answer: string
         `参考译文（仅供参考，意思准确、表达地道的其它译法同样给分）：\n${tagged('reference', promptText(q.reference, QUESTION_FIELD_MAX.reference))}`,
         `学生译文：\n${tagged('answer', promptText(answer, ANSWER_MAX_CHARS.translation))}`,
         '请评分，给出分项点评、逐句点评和改写示例，输出格式：',
-        '{"score": 0 到 15 的数字, "band": 14|11|8|5|2|0（分数所在档次）, "summary": "总评", "criteria": [{"key": "accuracy", "level": "good|fair|weak", "comment": "点评"}, …], "sentences": [{"original": "学生原句", "problem": "问题", "improvement": "改进后的译法"}, …], "rewrite": "在学生译文基础上修改后的整段英文译文"}',
+        '{"score": 0 到 15 的数字, "summary": "总评", "criteria": [{"key": "accuracy", "level": "good|fair|weak", "comment": "点评"}, …], "sentences": [{"original": "学生原句", "problem": "问题", "improvement": "改进后的译法"}, …], "rewrite": "在学生译文基础上修改后的整段英文译文"}',
         criteriaSpec(TRANSLATION_CRITERIA),
         'sentences 覆盖学生译文的每一句，即使没有问题也要列出，problem 写「无明显问题」。',
         'rewrite 尽量保留学生原有的结构和用词，只改错误和不地道的地方；不要照抄参考译文。',
@@ -234,7 +234,7 @@ export function essayGradingMessages(q: EssayPayload, answer: string): ChatMessa
         tagged('directions', promptText(q.directions, QUESTION_FIELD_MAX.directions)),
         `学生作文：\n${tagged('answer', promptText(answer, ANSWER_MAX_CHARS.essay))}`,
         '请评分，给出分项点评、问题清单和改写示例，输出格式：',
-        '{"score": 0 到 15 的数字, "band": 14|11|8|5|2|0（分数所在档次）, "summary": "总评", "criteria": [{"key": "content", "level": "good|fair|weak", "comment": "点评"}, …], "issues": [{"excerpt": "原文片段", "problem": "问题", "suggestion": "修改建议"}, …], "rewrite": "在保留学生思路的基础上改写的示范全文（英文）"}',
+        '{"score": 0 到 15 的数字, "summary": "总评", "criteria": [{"key": "content", "level": "good|fair|weak", "comment": "点评"}, …], "issues": [{"excerpt": "原文片段", "problem": "问题", "suggestion": "修改建议"}, …], "rewrite": "在保留学生思路的基础上改写的示范全文（英文）"}',
         criteriaSpec(ESSAY_CRITERIA),
       ].join('\n\n'),
     },
