@@ -6,7 +6,7 @@
 
 ## 环境
 
-- Node.js 22.13 或更高的 22.x（见 `.nvmrc`）
+- Node.js：使用 `.nvmrc` 里的 22.23.4（2026-10-21 安全版本），最低 22.23.4 的 22.x
 - npm（使用仓库里的 `package-lock.json`）
 
 ```bash
