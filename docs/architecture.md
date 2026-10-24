@@ -57,7 +57,7 @@ assets/db/words.db   只读词库（构建时生成，脚本在 scripts/build-wo
 - 题库取值：exam 为 `cet6` / `kaoyan` / `ielts`；section 为 `reading` / `translation` / `writing` / `listening`；type 为细分题型 `banked_cloze`、`matching`、`careful_reading`（阅读），`translation`，`essay`（写作），`long_conversation`、`passage`、`lecture`（听力）。exam、section 以 src/lib/exams.ts 为准，type 与板块的对应见 src/lib/exam/types.ts。
 - wrong_count 只算客观题答错（含未答）的题数，错题本查 wrong_count > 0。翻译、写作是主观题，wrong_count 固定 0、不进错题本；得分低于 9（满分 15）时 needs_redo = 1，表示「待重练」。
 - 题目软删除（deleted = 1）后不再出现在题目列表里，但作答记录保留，按 id 仍能取到原题。
-- 题库 SQL 在 src/db/questionRepo.ts。
+- 题库 SQL 在 src/db/questionRepo.ts。`listRecentTopics(exam, type, limit)` 取最近几道未删除题目的 payload.topic（去重，跳过没有 topic 的老题），给生成时的 avoidTopics 用。
 - 时间一律存 Unix 毫秒 UTC；updated_at/deleted/uuid 预留给未来同步。
 - 设置（接口地址、模型名）存 kv 表；API 密钥只存 expo-secure-store，禁止写入 SQLite、日志、崩溃报告。
 
@@ -70,9 +70,9 @@ assets/db/words.db   只读词库（构建时生成，脚本在 scripts/build-wo
 ## 题库与评分层（src/lib/exam）
 纯 TS，不能 import Expo / React Native（ESLint 对 src/lib 有限制）。zod（v4，版本写死）只在这个目录里用，其它层只拿推导出的普通类型。
 - `types.ts`：题型、板块对应、行类型（QuestionRow / AttemptRow）、主观题满分 15 和「待重练」阈值 9。
-- `schemas.ts`：每种题型的 payload schema，结构之外还在 superRefine 里查业务规则（选词填空 15 词 10 空、答案不重复、短文按顺序各有一次 `{{1}}`…`{{10}}`；段落匹配段落字母从 A 连续、10 道陈述答案必须是存在的段落；仔细阅读 5 题；听力长对话 4 题至少两位说话人，短文、讲座 3 到 4 题；选择题都是 4 个不重复选项、答案 A 到 D；每题带中文解析）。`SCHEMA_VERSION` 存进 question.schema_version。
+- `schemas.ts`：每种题型的 payload schema，结构之外还在 superRefine 里查业务规则（选词填空 15 词 10 空、答案不重复、短文按顺序各有一次 `{{1}}`…`{{10}}`；段落匹配段落字母从 A 连续、10 道陈述答案必须是存在的段落；仔细阅读 5 题；听力长对话 4 题至少两位说话人，短文、讲座 3 到 4 题；选择题都是 4 个不重复选项、答案 A 到 D；每题带中文解析）。`SCHEMA_VERSION` 存进 question.schema_version：v1 没有 topic；v2 起顶层有必填的 `topic`（简短英文话题，单行，≤ 60 字符）。生成新题用 `GENERATION_SCHEMAS`（topic 必填）；读题用 `PAYLOAD_SCHEMAS`（topic 可选，兼容 v1 老题），存库的题用 `parseStoredPayload(type, schema_version, payload)` 按版本解析（v1 topic 可选、v2 必填、更新的版本报错）。
 - `prompts.ts`：每种题型的生成 prompt 和主观题评分 prompt。要求只输出 JSON、原创、不得复述或改写真题，难度对齐六级；学生作答放在 `<answer>` 里，其中的指令一律忽略。改 prompt 必须把 `PROMPT_VERSION` 加 1。
-- `generate.ts`：`generateQuestion(type, { cfg, chat?, signal? })`，chat 依赖注入，默认用 src/lib/llm.ts。流程：解析 JSON（容忍代码块包裹和首尾杂字）→ zod 校验 → 不合格就把上次输出和精简后的错误回给模型重试，最多 2 次 → 仍失败抛 `ExamGenError`（kind 为 `invalid_json` / `schema_mismatch`，message 是中文）。`LlmError` 原样抛出、不额外重试（网络类错误 llm.ts 已经退避重试过）。
+- `generate.ts`：`generateQuestion(type, { cfg, chat?, signal?, avoidTopics? })`。avoidTopics 先清洗（去控制字符和换行、去首尾空格、去空、去重，最多 10 个，每个 ≤ 60 字符），作为「请避开以下话题」一段加进生成 prompt，每个话题写成一行 JSON 字符串；清洗后为空时 prompt 与不传完全一样，chat 依赖注入，默认用 src/lib/llm.ts。流程：解析 JSON（容忍代码块包裹和首尾杂字）→ zod 校验 → 不合格就把上次输出和精简后的错误回给模型重试，最多 2 次 → 仍失败抛 `ExamGenError`（kind 为 `invalid_json` / `schema_mismatch`，message 是中文）。`LlmError` 原样抛出、不额外重试（网络类错误 llm.ts 已经退避重试过）。
 - `grade.ts`：客观题本地判分（每题 1 分，返回 score、maxScore、wrongCount、逐题对错）；翻译、写作调用 LLM 按六级 15 分制评分，结果同样走 zod 校验和重试（分数 0 到 15，翻译分数要落在所给档次内）。主观题返回 wrongCount = 0、needsRedo = score < 9；空白作答直接 0 分，不调用 LLM。
 - 题目和作答怎么写进数据库由 features 层负责：拿 generate / grade 的结果拼成 QuestionRow / AttemptRow，再调 src/db/questionRepo.ts。
 
