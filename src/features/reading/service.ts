@@ -5,15 +5,8 @@
 import { useReducer } from 'react';
 
 import { getDatabases } from '../../db/open';
-import {
-  insertAttempt,
-  insertQuestion,
-  listAttemptsForQuestion,
-  listQuestions,
-  listRecentTopics,
-} from '../../db/questionRepo';
+import { insertAttempt } from '../../db/questionRepo';
 import type { SqlDb } from '../../db/types';
-import { ExamGenError, generateQuestion, type LlmDeps } from '../../lib/exam/generate';
 import { gradeObjective, type ObjectiveGrade, type ObjectiveQuestion } from '../../lib/exam/grade';
 import {
   answersByPart,
@@ -24,13 +17,16 @@ import {
   type ReadingSet,
   type SheetAction,
 } from '../../lib/exam/reading';
-import { parseStoredPayload } from '../../lib/exam/schemas';
-import type { AttemptRow, QuestionRow } from '../../lib/exam/types';
-import type { ExamId } from '../../lib/exams';
-import { LlmError } from '../../lib/llm';
+import type { AttemptRow } from '../../lib/exam/types';
 import { uuidv4 } from '../../lib/uuid';
 import { readSelectedExam } from '../exam/service';
-import { describeLlmError, getLlmConfig, loadLlmSettings } from '../settings/service';
+import { describeGenerationError, LlmNotConfiguredError } from '../generation/llm';
+import {
+  prepareQuestions,
+  type PrepareOptions,
+  type SkippedQuestion,
+} from '../generation/questions';
+import { getLlmConfig } from '../settings/service';
 import { notifyDataChanged } from '../shared';
 
 export { cet6PaperScore, type Cet6PaperScore } from '../../lib/exam/cet6-score';
@@ -101,47 +97,18 @@ export const READING_TYPE_META: Readonly<Record<ReadingQuestionType, ReadingType
   },
 };
 
-// ---------- 大模型配置 ----------
+// ---------- 大模型配置（和翻译、写作共用，见 ../generation/llm） ----------
 
-export type ReadingLlmStatus =
-  | { ready: true }
-  | {
-      ready: false;
-      /** 缺了哪几项，如 ['接口地址', '模型名'] */
-      missing: string[];
-      /** 保存过密钥但现在解不开 */
-      keyUnreadable: boolean;
-    };
-
-/** 能不能出题：接口地址、密钥、模型名都齐了才行 */
-export async function getReadingLlmStatus(): Promise<ReadingLlmStatus> {
-  if (await getLlmConfig()) return { ready: true };
-  const s = await loadLlmSettings();
-  const missing = [
-    s.baseUrl.trim() ? null : '接口地址',
-    s.hasKey ? null : '密钥',
-    s.model.trim() ? null : '模型名',
-  ].filter((x): x is string => x !== null);
-  return { ready: false, missing, keyUnreadable: s.keyUnreadable };
-}
-
-/** 没配大模型时出题 */
-export class ReadingNotConfiguredError extends Error {
-  constructor() {
-    super('还没有配置大模型：请先在「大模型设置」里填写接口地址、密钥和模型名');
-    this.name = 'ReadingNotConfiguredError';
-  }
-}
+export {
+  getGenerationLlmStatus as getReadingLlmStatus,
+  LlmNotConfiguredError as ReadingNotConfiguredError,
+  isAbort,
+  type GenerationLlmStatus as ReadingLlmStatus,
+} from '../generation/llm';
 
 /** 出题 / 保存失败时给用户看的中文说明 */
 export function describeReadingError(e: unknown): string {
-  if (e instanceof ExamGenError || e instanceof ReadingNotConfiguredError) return e.message;
-  if (e instanceof LlmError) return `出题失败：${describeLlmError(e)}`;
-  return `出题失败：${e instanceof Error ? e.message : String(e)}`;
-}
-
-export function isAbort(e: unknown): boolean {
-  return e instanceof LlmError && e.kind === 'aborted';
+  return describeGenerationError(e);
 }
 
 // ---------- 出题 ----------
@@ -149,37 +116,10 @@ export function isAbort(e: unknown): boolean {
 /** 一次练习：题目，以及题库里读不出来、被跳过的旧题（中文原因，界面要显示） */
 export interface PreparedReading {
   set: ReadingSet;
-  skipped: { id: string; error: string }[];
+  skipped: SkippedQuestion[];
 }
 
-/**
- * 题库里生成过、但一次都没做过的题（比如出完题就退出了），新的在前；先用它们，省一次调用。
- * 读不出来的（版本太新、内容损坏）跳过并记下原因。
- */
-async function unattempted<T extends ReadingQuestionType>(
-  user: SqlDb,
-  exam: ExamId,
-  type: T,
-  need: number,
-) {
-  const parts: { id: string; payload: unknown }[] = [];
-  const skipped: PreparedReading['skipped'] = [];
-  for (const row of await listQuestions(user, exam, type, 20)) {
-    if (parts.length >= need) break;
-    if ((await listAttemptsForQuestion(user, row.id)).length > 0) continue;
-    const r = parseStoredPayload(type, row.schema_version, row.payload);
-    if (r.ok) parts.push({ id: row.id, payload: r.payload });
-    else skipped.push({ id: row.id, error: r.error });
-  }
-  return { parts, skipped };
-}
-
-export interface PrepareOptions {
-  deps: LlmDeps;
-  now?: () => number;
-  /** 每准备好一道题回调一次（仔细阅读要两道） */
-  onProgress?: (done: number, total: number) => void;
-}
+export type { PrepareOptions };
 
 /** 准备一次练习：先用没做过的旧题，不够再生成，生成的题存进 question 表 */
 export async function prepareReadingSet<T extends ReadingQuestionType>(
@@ -187,39 +127,8 @@ export async function prepareReadingSet<T extends ReadingQuestionType>(
   type: T,
   opts: PrepareOptions,
 ): Promise<PreparedReading> {
-  const now = opts.now ?? Date.now;
-  const exam = (await readSelectedExam(user)) ?? 'cet6';
-  const total = READING_TYPE_META[type].parts;
-  const { parts, skipped } = await unattempted(user, exam, type, total);
-  let done = parts.length;
-  opts.onProgress?.(done, total);
-  if (done < total) {
-    // 同题型最近的话题（已去重、新的在前），让模型换个话题；清洗在 generateQuestion 里做
-    const avoidTopics = await listRecentTopics(user, exam, type);
-    const fresh = await Promise.all(
-      Array.from({ length: total - done }, async () => {
-        const q = await generateQuestion(type, { ...opts.deps, avoidTopics });
-        const row: QuestionRow = {
-          id: uuidv4(),
-          exam,
-          section: 'reading',
-          type,
-          schema_version: q.schemaVersion, // 用生成时的版本（v2 起带 topic），不写死
-          payload: JSON.stringify(q.payload),
-          source: 'llm',
-          model: q.model || null,
-          prompt_version: q.promptVersion,
-          created_at: now(),
-          deleted: 0,
-        };
-        await insertQuestion(user, row);
-        opts.onProgress?.(++done, total);
-        return { id: row.id, payload: q.payload as unknown };
-      }),
-    );
-    parts.push(...fresh);
-  }
-  return { set: { id: uuidv4(), type, parts } as ReadingSet, skipped };
+  const { parts, skipped } = await prepareQuestions(user, type, READING_TYPE_META[type].parts, opts);
+  return { set: { id: uuidv4(), type, parts } as unknown as ReadingSet, skipped };
 }
 
 /** 页面用：读配置、开库、准备一次练习。没配大模型抛 ReadingNotConfiguredError */
@@ -228,7 +137,7 @@ export async function startReadingSet(
   opts: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {},
 ): Promise<PreparedReading> {
   const cfg = await getLlmConfig();
-  if (!cfg) throw new ReadingNotConfiguredError();
+  if (!cfg) throw new LlmNotConfiguredError();
   const { user } = await getDatabases();
   const prepared = await prepareReadingSet(user, type, {
     deps: { cfg, signal: opts.signal },
