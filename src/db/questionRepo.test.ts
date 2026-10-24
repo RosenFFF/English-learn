@@ -3,6 +3,7 @@
  *
  * 题库与作答记录仓储：迁移 v2、题目增查删、作答写入、错题本、待重练、按板块统计。
  */
+import { BACKUP_VERSION, parseBackup } from '../lib/backup';
 import type { AttemptRow, QuestionRow } from '../lib/exam/types';
 import { openMemoryDb } from './__testutils__/nodeDb';
 import { runMigrations } from './migrate';
@@ -251,5 +252,78 @@ describe('作答记录', () => {
     ]);
     expect((await qrepo.statsBySection(db, 'cet6'))[0].attempts).toBe(3);
     expect(await qrepo.statsBySection(db, 'ielts')).toEqual([]);
+  });
+});
+
+describe('备份 v2：题库随备份导出、导入', () => {
+  async function seed(target: SqlDb): Promise<void> {
+    await qrepo.insertQuestion(target, question('q1'));
+    await qrepo.insertQuestion(
+      target,
+      question('q2', { section: 'writing', type: 'essay', model: null, deleted: 1 }),
+    );
+    await qrepo.insertAttempt(target, attempt('a1', 'q1'));
+    await qrepo.insertAttempt(
+      target,
+      attempt('a2', 'q2', {
+        section: 'writing',
+        type: 'essay',
+        answer: '"My essay"',
+        score: null,
+        max_score: 15,
+        feedback: null,
+        wrong_count: 0,
+        duration_ms: null,
+      }),
+    );
+  }
+  const dumpTables = async (target: SqlDb) => ({
+    question: await target.getAllAsync('SELECT * FROM question ORDER BY id', []),
+    attempt: await target.getAllAsync('SELECT * FROM attempt ORDER BY id', []),
+  });
+
+  it('导出带两张表，版本跟随 BACKUP_VERSION；往返后完全一致', async () => {
+    await seed(db);
+    const dump = await repo.dumpForBackup(db, 2, T0);
+    expect(dump.version).toBe(BACKUP_VERSION);
+    expect(dump.question).toHaveLength(2);
+    expect(dump.attempt).toHaveLength(2);
+
+    const other = openMemoryDb();
+    await runMigrations(other, MIGRATIONS, T0);
+    await qrepo.insertQuestion(other, question('stale'));
+    await qrepo.insertAttempt(other, attempt('stale-a', 'stale'));
+    await repo.restoreFromBackup(other, parseBackup(JSON.stringify(dump)));
+    expect(await dumpTables(other)).toEqual(await dumpTables(db));
+  });
+
+  it('导入 v1 备份：学习进度照常恢复，题库被清空', async () => {
+    await seed(db);
+    const v1 = {
+      format: 'english-learn-backup',
+      version: 1,
+      exported_at: T0,
+      schema_version: 1,
+      card: [],
+      review_log: [],
+      study_plan: [
+        { book_id: 'cet6', daily_new: 20, daily_review_cap: 200, started_at: T0, active: 1 },
+      ],
+      daily_stat: [],
+      kv: [],
+    };
+    await repo.restoreFromBackup(db, parseBackup(JSON.stringify(v1)));
+    expect(await dumpTables(db)).toEqual({ question: [], attempt: [] });
+    expect(await repo.getActivePlan(db)).toMatchObject({ book_id: 'cet6' });
+  });
+
+  it('导入中途失败整体回滚，题库保持原样', async () => {
+    await seed(db);
+    const before = await dumpTables(db);
+    const dump = await repo.dumpForBackup(db, 2, T0);
+    // 绕过 parseBackup：两道题 id 相同，第二次插入违反主键
+    const broken = { ...dump, question: [dump.question![0], dump.question![0]] };
+    await expect(repo.restoreFromBackup(db, broken)).rejects.toThrow();
+    expect(await dumpTables(db)).toEqual(before);
   });
 });

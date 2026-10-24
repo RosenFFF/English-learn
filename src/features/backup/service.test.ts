@@ -7,6 +7,7 @@ import { openMemoryDb } from '../../db/__testutils__/nodeDb';
 import { runMigrations } from '../../db/migrate';
 import { MIGRATIONS } from '../../db/migrations';
 import type { SqlDb } from '../../db/types';
+import * as qrepo from '../../db/questionRepo';
 import * as repo from '../../db/userRepo';
 import { AUTO_BACKUP_KEEP, autoBackupTime } from '../../lib/backup';
 import { newCardRow, rateCard } from '../../lib/fsrs';
@@ -72,6 +73,8 @@ async function snapshot(db: SqlDb) {
       'llm_model',
       'auto_speak',
     ]),
+    question: await db.getAllAsync('SELECT * FROM question ORDER BY id', []),
+    attempt: await db.getAllAsync('SELECT * FROM attempt ORDER BY id', []),
   };
 }
 
@@ -108,6 +111,36 @@ beforeEach(async () => {
   await repo.kvSet(user, 'llm_model', 'deepseek-chat');
   await repo.kvSet(user, 'auto_speak', '0');
   await repo.kvSet(user, 'words_db_version', '1');
+  // 题库：一道题和一次作答，导入 / 恢复时要跟着学习进度一起备份和还原
+  await qrepo.insertQuestion(user, {
+    id: 'q-local',
+    exam: 'cet6',
+    section: 'writing',
+    type: 'essay',
+    schema_version: 1,
+    payload: '{"title":"t"}',
+    source: 'llm',
+    model: 'm',
+    prompt_version: 1,
+    created_at: T0,
+    deleted: 0,
+  });
+  await qrepo.insertAttempt(user, {
+    id: 'a-local',
+    question_id: 'q-local',
+    exam: 'cet6',
+    section: 'writing',
+    type: 'essay',
+    answer: '"essay"',
+    score: 7,
+    max_score: 15,
+    feedback: '{"score":7}',
+    wrong_count: 0,
+    needs_redo: 1,
+    duration_ms: 1000,
+    started_at: T0,
+    submitted_at: T0,
+  });
 });
 
 it('确认导入时先生成自动备份，备份内容就是导入前的进度，然后才覆盖', async () => {
@@ -129,6 +162,14 @@ it('确认导入时先生成自动备份，备份内容就是导入前的进度�
   expect(saved.card).toEqual(before.card);
   expect(await repo.getCard(user, 101)).not.toBeNull();
   expect(await repo.getCard(user, 1)).toBeNull();
+  // 题库也被替换成备份里的（另一台设备没有题），自动备份里留着原来的题库
+  expect(await qrepo.getQuestion(user, 'q-local')).toBeNull();
+  const savedBank = JSON.parse(files.get(backup.name)!) as {
+    question: unknown[];
+    attempt: unknown[];
+  };
+  expect(savedBank.question).toEqual(before.question);
+  expect(savedBank.attempt).toEqual(before.attempt);
 });
 
 it('在确认框里取消导入或恢复，不写备份，备份列表不变', async () => {
