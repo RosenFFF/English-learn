@@ -1,7 +1,7 @@
 /** AI 讲解：先查 ai_cache，没有再调用用户自己配置的大模型。 */
 import { getDatabases } from '../../db/open';
 import { getAiCache, putAiCache } from '../../db/userRepo';
-import type { ExamId } from '../../db/wordsRepo';
+import type { BookExam } from '../../db/wordsRepo';
 import { chat } from '../../lib/llm';
 import type { WordDetail } from '../../lib/words';
 import { getLlmConfig, describeLlmError } from '../settings/service';
@@ -16,7 +16,7 @@ export type ExplainResult =
 
 export async function explainWord(
   word: WordDetail,
-  exam: ExamId,
+  exam: BookExam,
   signal?: AbortSignal,
 ): Promise<ExplainResult> {
   const cfg = await getLlmConfig();

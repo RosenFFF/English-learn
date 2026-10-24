@@ -1,9 +1,9 @@
+import type { BookExam } from '../../db/wordsRepo';
 import type { ChatMessage } from '../../lib/llm';
 
-export type ExamId = 'cet4' | 'cet6' | 'kaoyan' | 'ielts';
 export type AiKind = 'explain_word' | 'explain_sentence';
 
-const EXAM_NAME: Record<ExamId, string> = {
+const EXAM_NAME: Record<BookExam, string> = {
   cet4: '大学英语四级',
   cet6: '大学英语六级',
   kaoyan: '考研英语',
@@ -16,7 +16,7 @@ const SYSTEM =
 export interface WordContext {
   headword: string;
   meaningsZh: string[];
-  exam: ExamId;
+  exam: BookExam;
 }
 
 export function explainWordMessages(w: WordContext): ChatMessage[] {
@@ -36,7 +36,7 @@ export function explainWordMessages(w: WordContext): ChatMessage[] {
   ];
 }
 
-export function explainSentenceMessages(sentence: string, exam: ExamId): ChatMessage[] {
+export function explainSentenceMessages(sentence: string, exam: BookExam): ChatMessage[] {
   return [
     { role: 'system', content: SYSTEM },
     {
