@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { easeOut } from './motion';
+import { easeOut, useReducedMotion } from './motion';
 import { MAX_WIDTH, radius, space, usePalette } from './theme';
 
 // ---------- 文字 ----------
@@ -81,42 +81,50 @@ export function Screen({
 }
 
 // ---------- 按下缩放的 Pressable（160ms ease-out，pointer-down 立即反馈） ----------
+// 系统开了「减少动态效果」时不缩放，改成轻微变淡（保留反馈，去掉形变）
 export function PressableScale({
   style,
   outerStyle,
   children,
   disabled,
+  dimWhenDisabled = true,
   ...rest
 }: Omit<PressableProps, 'style' | 'children'> & {
   style?: StyleProp<ViewStyle>;
   outerStyle?: StyleProp<ViewStyle>;
   children: ReactNode;
+  /** 禁用时整体半透明；自己用颜色表达禁用状态的组件传 false */
+  dimWhenDisabled?: boolean;
 }) {
-  const [scale] = useState(() => new Animated.Value(1));
+  const reduced = useReducedMotion();
+  const [press] = useState(() => new Animated.Value(0));
   const to = (v: number): void => {
-    Animated.timing(scale, {
+    Animated.timing(press, {
       toValue: v,
       duration: 160,
       easing: easeOut,
       useNativeDriver: Platform.OS !== 'web',
     }).start();
   };
+  const feedback = reduced
+    ? { opacity: press.interpolate({ inputRange: [0, 1], outputRange: [1, 0.7] }) }
+    : { transform: [{ scale: press.interpolate({ inputRange: [0, 1], outputRange: [1, 0.97] }) }] };
   return (
     <Pressable
       {...rest}
       style={outerStyle}
       disabled={disabled}
       onPressIn={(e) => {
-        to(0.97);
+        to(1);
         rest.onPressIn?.(e);
       }}
       onPressOut={(e) => {
-        to(1);
+        to(0);
         rest.onPressOut?.(e);
       }}
     >
       <Animated.View
-        style={[style, { transform: [{ scale }] }, disabled ? { opacity: 0.5 } : null]}
+        style={[style, feedback, disabled && dimWhenDisabled ? { opacity: 0.5 } : null]}
       >
         {children}
       </Animated.View>
@@ -226,12 +234,15 @@ export function Segmented<T extends string | number>({
   onChange,
   label,
   format,
+  tall,
 }: {
   options: readonly T[];
   value: T;
   onChange: (v: T) => void;
   label: string;
   format?: (v: T) => string;
+  /** 段高 44（触控目标达标）；默认 36 保持原来几页的样子 */
+  tall?: boolean;
 }) {
   const p = usePalette();
   return (
@@ -251,8 +262,10 @@ export function Segmented<T extends string | number>({
             accessibilityRole="radio"
             accessibilityLabel={`${label}：${text}`}
             accessibilityState={state}
+            testID={`segment-${String(o)}`}
             style={[
               styles.segment,
+              tall && { minHeight: 44 },
               selected && { backgroundColor: p.surface, borderColor: p.border },
             ]}
           >

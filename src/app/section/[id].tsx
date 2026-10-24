@@ -1,6 +1,7 @@
 import { Redirect, router, Stack, useLocalSearchParams } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
+import { liveSectionHref } from '@/features/exam/navigation';
 import { getSection, isSectionId } from '@/features/exam/service';
 import { Button, Card, Screen, Txt } from '@/ui/primitives';
 import { space } from '@/ui/theme';
@@ -31,7 +32,8 @@ export default function SectionScreen() {
 
   const section = getSection(id);
   // 已上线的板块有自己的页面
-  if (section.id === 'vocab') return <Redirect href="/vocab" />;
+  const live = liveSectionHref(section.id);
+  if (live) return <Redirect href={live} />;
 
   return (
     <>

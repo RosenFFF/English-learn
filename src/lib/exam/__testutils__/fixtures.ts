@@ -28,6 +28,7 @@ const choice = (stem: string, answer: 'A' | 'B' | 'C' | 'D') => ({
 
 export const VALID_PAYLOADS: Record<QuestionType, Record<string, unknown>> = {
   banked_cloze: {
+    topic: 'remote work',
     passage: Array.from({ length: 10 }, (_, i) => `Sentence ${i + 1} has a {{${i + 1}}} gap.`).join(
       ' ',
     ),
@@ -38,6 +39,7 @@ export const VALID_PAYLOADS: Record<QuestionType, Record<string, unknown>> = {
     })),
   },
   matching: {
+    topic: 'urban trees',
     title: 'Why Cities Plant Trees',
     paragraphs: 'ABCDEFGHIJ'.split('').map((label) => ({ label, text: `Paragraph ${label}.` })),
     statements: 'ABCDEFGHIA'.split('').map((answer, i) => ({
@@ -47,16 +49,19 @@ export const VALID_PAYLOADS: Record<QuestionType, Record<string, unknown>> = {
     })),
   },
   careful_reading: {
+    topic: 'sleep and memory',
     passage: 'A passage about sleep and memory.',
     questions: (['A', 'B', 'C', 'D', 'A'] as const).map((a, i) => choice(`Q${i + 1}`, a)),
   },
   translation: {
+    topic: 'Chinese tea culture',
     source: '中国的茶文化历史悠久，饮茶在中国已有几千年的历史。',
     reference:
       'China has a long history of tea culture; tea drinking dates back thousands of years.',
     explanation: '「历史悠久」可译为 have a long history。',
   },
   essay: {
+    topic: 'lifelong learning',
     title: 'The Value of Lifelong Learning',
     directions:
       'Directions: For this part, you are allowed 30 minutes to write an essay on the value of lifelong learning.',
@@ -65,6 +70,7 @@ export const VALID_PAYLOADS: Record<QuestionType, Record<string, unknown>> = {
     explanation: '三段式：观点、理由、结论。',
   },
   long_conversation: {
+    topic: 'a business trip',
     transcript: [
       { speaker: 'W', text: 'Hi, how was the trip?' },
       { speaker: 'M', text: 'Great, thanks.' },
@@ -72,10 +78,12 @@ export const VALID_PAYLOADS: Record<QuestionType, Record<string, unknown>> = {
     questions: (['A', 'B', 'C', 'D'] as const).map((a, i) => choice(`L${i + 1}`, a)),
   },
   passage: {
+    topic: 'local news',
     transcript: [{ speaker: 'Narrator', text: 'A short news report.' }],
     questions: (['B', 'C', 'D'] as const).map((a, i) => choice(`P${i + 1}`, a)),
   },
   lecture: {
+    topic: 'urban heat islands',
     transcript: [{ speaker: 'Lecturer', text: 'Today we discuss urban heat islands.' }],
     questions: (['D', 'C', 'B', 'A'] as const).map((a, i) => choice(`T${i + 1}`, a)),
   },

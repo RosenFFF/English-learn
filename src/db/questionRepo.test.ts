@@ -327,3 +327,57 @@ describe('备份 v2：题库随备份导出、导入', () => {
     expect(await dumpTables(db)).toEqual(before);
   });
 });
+
+describe('listRecentTopics', () => {
+  const withTopic = (topic: unknown) => JSON.stringify({ topic, passage: 'x' });
+
+  it('取某 exam + type 最近 N 道未删除题的话题，最新的在前，去重并跳过没有 topic 的老题', async () => {
+    const rows: [string, unknown, number][] = [
+      ['q1', 'remote work', 1],
+      ['q2', 'Remote Work', 2],
+      ['q3', undefined, 3], // v1 老题，没有 topic
+      ['q4', '  sleep  ', 4],
+      ['q5', 42, 5], // 类型不对
+      ['q6', '', 6],
+      ['q7', 'ocean plastic', 7],
+    ];
+    for (const [id, topic, t] of rows)
+      await qrepo.insertQuestion(
+        db,
+        question(id, { payload: withTopic(topic), created_at: T0 + t }),
+      );
+    await qrepo.insertQuestion(
+      db,
+      question('deleted', { payload: withTopic('deleted topic'), created_at: T0 + 99, deleted: 1 }),
+    );
+    await qrepo.insertQuestion(
+      db,
+      question('other-type', { type: 'matching', payload: withTopic('matching topic') }),
+    );
+    await qrepo.insertQuestion(
+      db,
+      question('other-exam', { exam: 'ielts', payload: withTopic('ielts topic') }),
+    );
+
+    expect(await qrepo.listRecentTopics(db, 'cet6', 'careful_reading')).toEqual([
+      'ocean plastic',
+      'sleep',
+      'Remote Work',
+    ]);
+    // N 是题数：最近 3 道是 q7、q6、q5，只有 q7 有可用话题
+    expect(await qrepo.listRecentTopics(db, 'cet6', 'careful_reading', 3)).toEqual([
+      'ocean plastic',
+    ]);
+    expect(await qrepo.listRecentTopics(db, 'cet6', 'matching')).toEqual(['matching topic']);
+    expect(await qrepo.listRecentTopics(db, 'cet6', 'essay')).toEqual([]);
+  });
+
+  it('payload 不是合法 JSON 时跳过这一行，不让整个查询失败', async () => {
+    await qrepo.insertQuestion(db, question('bad', { payload: '{oops', created_at: T0 + 2 }));
+    await qrepo.insertQuestion(
+      db,
+      question('ok', { payload: withTopic('ok'), created_at: T0 + 1 }),
+    );
+    expect(await qrepo.listRecentTopics(db, 'cet6', 'careful_reading')).toEqual(['ok']);
+  });
+});

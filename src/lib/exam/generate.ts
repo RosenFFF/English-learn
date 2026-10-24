@@ -6,7 +6,12 @@ import type { z } from 'zod';
 
 import { chat as defaultChat, LlmError, type ChatMessage, type LlmConfig } from '../llm';
 import { generationMessages, PROMPT_VERSION, retryMessage } from './prompts';
-import { PAYLOAD_SCHEMAS, SCHEMA_VERSION, summarizeIssues, type PayloadOf } from './schemas';
+import {
+  GENERATION_SCHEMAS,
+  SCHEMA_VERSION,
+  summarizeIssues,
+  type GeneratedPayloadOf,
+} from './schemas';
 import { QUESTION_TYPE_LABEL, type QuestionType } from './types';
 
 export type ChatFn = typeof defaultChat;
@@ -103,20 +108,30 @@ export async function askJson<T>(deps: LlmDeps, opts: AskJsonOptions<T>): Promis
 
 export interface GeneratedQuestion<T extends QuestionType = QuestionType> {
   type: T;
-  payload: PayloadOf<T>;
+  /** 新题一定带 topic */
+  payload: GeneratedPayloadOf<T>;
   schemaVersion: number;
   promptVersion: number;
   model: string;
 }
 
+export interface GenerateOptions extends LlmDeps {
+  /**
+   * 最近几道题的话题，让模型避开（一般传 listRecentTopics 的结果）。
+   * 会先清洗：去首尾空格、去控制字符、去空、去重，最多 10 个，每个最多 60 字符。
+   */
+  avoidTopics?: readonly string[];
+}
+
 /** 生成一道题。最终失败抛 ExamGenError；LlmError 原样抛出。 */
 export async function generateQuestion<T extends QuestionType>(
   type: T,
-  deps: LlmDeps,
+  opts: GenerateOptions,
 ): Promise<GeneratedQuestion<T>> {
+  const { avoidTopics, ...deps } = opts;
   const payload = await askJson(deps, {
-    messages: generationMessages(type),
-    schema: PAYLOAD_SCHEMAS[type] as unknown as z.ZodType<PayloadOf<T>>,
+    messages: generationMessages(type, avoidTopics),
+    schema: GENERATION_SCHEMAS[type] as unknown as z.ZodType<GeneratedPayloadOf<T>>,
     what: `${QUESTION_TYPE_LABEL[type]}题目`,
     temperature: 0.8,
   });

@@ -12,8 +12,17 @@ import {
   type SubjectiveType,
 } from './types';
 
-/** 题目 JSON 的结构版本，存进 question.schema_version；以后改结构时靠它兼容旧题 */
-export const SCHEMA_VERSION = 1;
+/**
+ * 题目 JSON 的结构版本，存进 question.schema_version；以后改结构时靠它兼容旧题。
+ * v1：最初的结构，没有 topic。
+ * v2：顶层增加 topic（简短英文话题）。新生成的题一定带 topic；读库时 v1 的题允许没有 topic。
+ */
+export const SCHEMA_VERSION = 2;
+
+/** topic 最长字符数（避开话题、存库都按这个上限） */
+export const TOPIC_MAX_LENGTH = 60;
+/** 控制字符、格式字符和行/段分隔符：topic 里不允许出现，避开话题时会被清掉 */
+export const TOPIC_FORBIDDEN_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
 /** 选词填空：候选词个数和空位个数 */
 export const BANKED_CLOZE_OPTIONS = 15;
@@ -185,7 +194,14 @@ export const longConversationSchema = listeningSchema({ questions: [4, 4], minSp
 export const passageSchema = listeningSchema({ questions: [3, 4], minSpeakers: 1 });
 export const lectureSchema = listeningSchema({ questions: [3, 4], minSpeakers: 1 });
 
-export const PAYLOAD_SCHEMAS = {
+// ---------- 话题 topic（schema v2） ----------
+/** 简短英文话题，如 "urban gardening"；单行、不含控制字符 */
+export const topicSchema = text
+  .max(TOPIC_MAX_LENGTH, `topic 不能超过 ${TOPIC_MAX_LENGTH} 个字符`)
+  .refine((t) => !TOPIC_FORBIDDEN_CHARS.test(t), 'topic 只能是一行文字，不能有换行或控制字符');
+
+/** 各题型不含 topic 的主体 schema（业务规则都在这里） */
+const BODY_SCHEMAS = {
   banked_cloze: bankedClozeSchema,
   matching: matchingSchema,
   careful_reading: carefulReadingSchema,
@@ -195,16 +211,54 @@ export const PAYLOAD_SCHEMAS = {
   passage: passageSchema,
   lecture: lectureSchema,
 } as const satisfies Record<QuestionType, z.ZodType>;
+type BodyOf<T extends QuestionType> = z.infer<(typeof BODY_SCHEMAS)[T]>;
 
-export type BankedClozePayload = z.infer<typeof bankedClozeSchema>;
-export type MatchingPayload = z.infer<typeof matchingSchema>;
-export type CarefulReadingPayload = z.infer<typeof carefulReadingSchema>;
-export type TranslationPayload = z.infer<typeof translationSchema>;
-export type EssayPayload = z.infer<typeof essaySchema>;
-export type ListeningPayload = z.infer<typeof longConversationSchema>;
+const withTopic = <S extends z.ZodType>(s: S) => z.object({ topic: topicSchema }).and(s);
+const withOptionalTopic = <S extends z.ZodType>(s: S) =>
+  z.object({ topic: topicSchema.optional() }).and(s);
+
+/**
+ * 读题用（兼容 v1、v2）：topic 可选。读库、导入、判分都用这一套。
+ * 新生成的题用 GENERATION_SCHEMAS，topic 必填。
+ */
+export const PAYLOAD_SCHEMAS = {
+  banked_cloze: withOptionalTopic(bankedClozeSchema),
+  matching: withOptionalTopic(matchingSchema),
+  careful_reading: withOptionalTopic(carefulReadingSchema),
+  translation: withOptionalTopic(translationSchema),
+  essay: withOptionalTopic(essaySchema),
+  long_conversation: withOptionalTopic(longConversationSchema),
+  passage: withOptionalTopic(passageSchema),
+  lecture: withOptionalTopic(lectureSchema),
+} as const satisfies Record<QuestionType, z.ZodType>;
+
+/** 生成新题用（schema v2）：topic 必填 */
+export const GENERATION_SCHEMAS = {
+  banked_cloze: withTopic(bankedClozeSchema),
+  matching: withTopic(matchingSchema),
+  careful_reading: withTopic(carefulReadingSchema),
+  translation: withTopic(translationSchema),
+  essay: withTopic(essaySchema),
+  long_conversation: withTopic(longConversationSchema),
+  passage: withTopic(passageSchema),
+  lecture: withTopic(lectureSchema),
+} as const satisfies Record<QuestionType, z.ZodType>;
+
+/** 读出来的题：v1 的老题可能没有 topic */
+type Stored<B> = B & { topic?: string };
+
+export type BankedClozePayload = Stored<z.infer<typeof bankedClozeSchema>>;
+export type MatchingPayload = Stored<z.infer<typeof matchingSchema>>;
+export type CarefulReadingPayload = Stored<z.infer<typeof carefulReadingSchema>>;
+export type TranslationPayload = Stored<z.infer<typeof translationSchema>>;
+export type EssayPayload = Stored<z.infer<typeof essaySchema>>;
+export type ListeningPayload = Stored<z.infer<typeof longConversationSchema>>;
 export type ChoiceQuestion = z.infer<typeof choiceQuestion>;
 
-export type PayloadOf<T extends QuestionType> = z.infer<(typeof PAYLOAD_SCHEMAS)[T]>;
+/** 读出来的 payload（topic 可选） */
+export type PayloadOf<T extends QuestionType> = Stored<BodyOf<T>>;
+/** 新生成的 payload（topic 必填） */
+export type GeneratedPayloadOf<T extends QuestionType> = BodyOf<T> & { topic: string };
 
 /** 带题型标签的题目，便于按 type 收窄 payload */
 export type Question = { [T in QuestionType]: { type: T; payload: PayloadOf<T> } }[QuestionType];
@@ -275,10 +329,43 @@ export function summarizeIssues(error: z.ZodError, max = 8): string {
   return lines.join('\n');
 }
 
-/** 校验一道题的 payload（读库、导入时也可以用） */
+/** 校验一道题的 payload（topic 可选，v1、v2 都能过） */
 export function parsePayload<T extends QuestionType>(
   type: T,
   data: unknown,
 ): z.ZodSafeParseResult<PayloadOf<T>> {
   return (PAYLOAD_SCHEMAS[type] as unknown as z.ZodType<PayloadOf<T>>).safeParse(data);
+}
+
+export type StoredPayloadResult<T extends QuestionType> =
+  { ok: true; payload: PayloadOf<T> } | { ok: false; error: string };
+
+/**
+ * 解析存库的题（question 表的 type、schema_version、payload 三列）。
+ * - schema_version 1：topic 可选（老题没有）
+ * - schema_version 2：topic 必填
+ * - 比 SCHEMA_VERSION 新、不是正整数、payload 不是 JSON 或校验不过：返回 ok: false 和中文原因
+ */
+export function parseStoredPayload<T extends QuestionType>(
+  type: T,
+  schemaVersion: number,
+  payloadText: string,
+): StoredPayloadResult<T> {
+  if (!Number.isInteger(schemaVersion) || schemaVersion < 1)
+    return { ok: false, error: `题目版本不合法：${schemaVersion}` };
+  if (schemaVersion > SCHEMA_VERSION)
+    return { ok: false, error: '这道题来自更新版本的 App，请先升级' };
+  let data: unknown;
+  try {
+    data = JSON.parse(payloadText);
+  } catch {
+    return { ok: false, error: '题目内容不是有效的 JSON' };
+  }
+  const schema = (schemaVersion >= 2 ? GENERATION_SCHEMAS : PAYLOAD_SCHEMAS)[
+    type
+  ] as unknown as z.ZodType<PayloadOf<T>>;
+  const r = schema.safeParse(data);
+  return r.success
+    ? { ok: true, payload: r.data }
+    : { ok: false, error: `题目内容格式不对：\n${summarizeIssues(r.error)}` };
 }

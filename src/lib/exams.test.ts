@@ -28,7 +28,7 @@ describe('考试与板块元数据', () => {
     expect(isSelectableExam('ielts')).toBe(false);
   });
 
-  it('板块白名单：六个 id，只有词汇已上线', () => {
+  it('板块白名单：六个 id，词汇和阅读已上线', () => {
     expect(SECTION_IDS).toEqual([
       'vocab',
       'reading',
@@ -42,7 +42,7 @@ describe('考试与板块元数据', () => {
       expect(getSection(id).title).not.toBe('');
       expect(getSection(id).description).not.toBe('');
     }
-    expect(SECTION_IDS.filter((id) => getSection(id).available)).toEqual(['vocab']);
+    expect(SECTION_IDS.filter((id) => getSection(id).available)).toEqual(['vocab', 'reading']);
     for (const v of ['', 'Vocab', 'today', '../vocab', 'constructor', 'toString', null, 1]) {
       expect(isSectionId(v)).toBe(false);
     }

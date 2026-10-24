@@ -15,6 +15,9 @@ export interface Palette {
   primaryText: string;
   primarySoft: string;
   danger: string;
+  dangerSoft: string;
+  success: string;
+  successSoft: string;
   warningSoft: string;
   warningText: string;
   rating: Record<'again' | 'hard' | 'good' | 'easy', string>;
@@ -34,6 +37,9 @@ const light: Palette = {
   primaryText: '#FFFFFF',
   primarySoft: '#E7EEFD',
   danger: '#D93D42',
+  dangerSoft: '#FCE9E9',
+  success: '#138A4B',
+  successSoft: '#E2F4EA',
   warningSoft: '#FFF4DE',
   warningText: '#8A5A00',
   rating: { again: '#D93D42', hard: '#C77700', good: '#138A4B', easy: '#2F6BED' },
@@ -53,6 +59,9 @@ const dark: Palette = {
   primaryText: '#0B1220',
   primarySoft: '#1B2740',
   danger: '#FF6B6F',
+  dangerSoft: '#3A1D1F',
+  success: '#3CCB7F',
+  successSoft: '#14301F',
   warningSoft: '#2E2513',
   warningText: '#F5C46B',
   rating: { again: '#FF6B6F', hard: '#F2A93B', good: '#3CCB7F', easy: '#5B8DFF' },

@@ -46,6 +46,7 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen name="vocab" options={{ headerShown: false }} />
+            <Stack.Screen name="reading" options={{ headerShown: false }} />
             <Stack.Screen
               name="section/[id]"
               options={{ headerTitle: '', headerStyle: { backgroundColor: p.bg } }}

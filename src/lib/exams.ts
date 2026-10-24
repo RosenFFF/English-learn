@@ -54,7 +54,8 @@ export const SECTIONS: Readonly<Record<SectionId, SectionMeta>> = {
     id: 'reading',
     title: '阅读',
     description: '选词填空、长篇阅读（段落匹配）和仔细阅读三种题型。',
-    available: false,
+    // 用户配置的大模型现场出题（src/lib/exam/generate.ts），存进题库
+    available: true,
   },
   translation: {
     id: 'translation',
