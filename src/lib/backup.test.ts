@@ -5,6 +5,8 @@ import {
   autoBackupTime,
   backupFileName,
   BackupError,
+  EXPORTABLE_KV_KEYS,
+  isExportableKv,
   parseBackup,
   sortAutoBackups,
 } from './backup';
@@ -62,6 +64,25 @@ describe('备份文件校验', () => {
     const p = parseBackup(JSON.stringify(valid));
     expect(p.card[0]).toMatchObject({ learning_steps: 0, updated_at: 1000, deleted: 0 });
     expect(p.kv).toEqual([{ key: 'llm_model', value: 'm' }]);
+  });
+
+  it('当前考试 exam 随备份导入；值不合法（不认识或还没上线）就忽略这一项', () => {
+    expect(EXPORTABLE_KV_KEYS.has('exam')).toBe(true);
+    const withExam = (value: string) =>
+      parseBackup(JSON.stringify({ ...valid, kv: [...valid.kv, { key: 'exam', value }] })).kv;
+    expect(withExam('cet6')).toEqual([
+      { key: 'llm_model', value: 'm' },
+      { key: 'exam', value: 'cet6' },
+    ]);
+    for (const bad of ['ielts', 'kaoyan', 'cet4', '', 'CET6', '<script>'])
+      expect(withExam(bad)).toEqual([{ key: 'llm_model', value: 'm' }]);
+  });
+
+  it('isExportableKv：键在白名单且值合法', () => {
+    expect(isExportableKv({ key: 'exam', value: 'cet6' })).toBe(true);
+    expect(isExportableKv({ key: 'exam', value: 'x' })).toBe(false);
+    expect(isExportableKv({ key: 'auto_speak', value: '0' })).toBe(true);
+    expect(isExportableKv({ key: 'llm_api_key', value: 'sk' })).toBe(false);
   });
 
   it.each([

@@ -28,7 +28,7 @@ const KIND_LABEL = { new: '新词', review: '复习', learning: '再看一次' }
 function close(): void {
   stopSpeaking();
   if (router.canGoBack()) router.back();
-  else router.replace('/today');
+  else router.replace('/vocab');
 }
 
 function SpeakButton({ word }: { word: string }) {

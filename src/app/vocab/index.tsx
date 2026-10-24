@@ -6,11 +6,14 @@ import { useTodaySummary } from '@/features/study/service';
 import {
   Button,
   Card,
+  Divider,
   ErrorView,
   Loading,
   Notice,
   ProgressBar,
+  Row,
   Screen,
+  SectionTitle,
   Txt,
 } from '@/ui/primitives';
 import { radius, space, usePalette } from '@/ui/theme';
@@ -39,19 +42,19 @@ function Stat({ value, label, testID }: { value: number; label: string; testID: 
   );
 }
 
-export default function TodayScreen() {
+export default function VocabScreen() {
   const p = usePalette();
   const { data, error, reload } = useTodaySummary();
 
   if (error)
     return (
-      <Screen>
+      <Screen edges={[]}>
         <ErrorView message={error} onRetry={reload} />
       </Screen>
     );
   if (!data)
     return (
-      <Screen>
+      <Screen edges={[]}>
         <Loading />
       </Screen>
     );
@@ -62,14 +65,14 @@ export default function TodayScreen() {
   const goal = doneToday + remaining;
 
   return (
-    <Screen>
+    <Screen edges={[]}>
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Txt variant="caption" tone="tertiary">
             {dateTitle(new Date())}
           </Txt>
           <Txt variant="title" accessibilityRole="header">
-            今天
+            词汇
           </Txt>
         </View>
         <View
@@ -100,7 +103,7 @@ export default function TodayScreen() {
           <View style={{ marginTop: space.xl }}>
             <Button
               label="选择词书"
-              onPress={() => router.navigate('/books')}
+              onPress={() => router.navigate('/vocab/books')}
               testID="choose-book"
             />
           </View>
@@ -150,12 +153,30 @@ export default function TodayScreen() {
             <View style={{ gap: space.sm, alignItems: 'center' }}>
               <Txt variant="headline">今天的任务完成了 ✓</Txt>
               <Txt variant="caption" tone="secondary" style={{ textAlign: 'center' }}>
-                明天再来。想多练可以去「练习」看看弱点词，或在「词书」里调高每日新词。
+                明天再来。想多练可以看看下面的弱点词，或在「词书」里调高每日新词。
               </Txt>
             </View>
           )}
         </Card>
       )}
+
+      <SectionTitle>更多</SectionTitle>
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <Row
+          title="词书"
+          value={book ? book.name : '未选择'}
+          onPress={() => router.push('/vocab/books')}
+          hint="切换词书、调整每日新词和复习上限"
+          testID="vocab-books"
+        />
+        <Divider />
+        <Row
+          title="弱点词 / 生词练习"
+          onPress={() => router.push('/vocab/practice')}
+          hint="查看常忘的词和最近新学的词"
+          testID="vocab-practice"
+        />
+      </Card>
 
       <Txt variant="caption" tone="tertiary" style={{ textAlign: 'center', marginTop: space.lg }}>
         每天完成 1 组就算打卡

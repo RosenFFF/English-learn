@@ -150,4 +150,22 @@ describe('导出/导入', () => {
     expect(await repo.getActivePlan(other)).toMatchObject({ book_id: 'cet6' });
     expect(await repo.getDayStat(other, '2026-10-17')).toMatchObject({ new_count: 1, sessions: 1 });
   });
+
+  it('当前考试 exam 随备份导出、导入；导入时值不合法就忽略，保留设备上原来的选择', async () => {
+    await repo.kvSet(db, 'exam', 'cet6');
+    const dump = await repo.dumpForBackup(db, 1, now);
+    expect(dump.kv).toContainEqual({ key: 'exam', value: 'cet6' });
+
+    // 新设备：还没选过考试，导入后直接是六级
+    const fresh = openMemoryDb();
+    await runMigrations(fresh, MIGRATIONS, now);
+    await repo.restoreFromBackup(fresh, parseBackup(JSON.stringify(dump)));
+    expect(await repo.kvGet(fresh, 'exam')).toBe('cet6');
+
+    // 手改过的备份：exam 值不合法。即使绕过 parseBackup 直接恢复，也不会写进 kv
+    const tampered = { ...dump, kv: [{ key: 'exam', value: 'ielts' }] };
+    expect(parseBackup(JSON.stringify(tampered)).kv).toEqual([]);
+    await repo.restoreFromBackup(fresh, tampered);
+    expect(await repo.kvGet(fresh, 'exam')).toBe('cet6');
+  });
 });

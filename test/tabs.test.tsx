@@ -11,11 +11,11 @@ jest.mock('@expo/vector-icons/Ionicons', () => {
   return { __esModule: true, default: Icon };
 });
 
-const tabLabels = ['今天', '词书', '练习', '我的'];
+const tabLabels = ['首页', '我的'];
 
 describe('tabs', () => {
-  it('renders the four tabs', async () => {
-    await renderRouter('./src/app', { initialUrl: '/today' });
+  it('renders the two tabs', async () => {
+    await renderRouter('./src/app', { initialUrl: '/home' });
 
     for (const label of tabLabels) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);

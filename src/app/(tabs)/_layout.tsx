@@ -7,9 +7,7 @@ import { usePalette } from '@/ui/theme';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 const TABS: { name: string; title: string; icon: IconName; iconActive: IconName }[] = [
-  { name: 'today', title: '今天', icon: 'sunny-outline', iconActive: 'sunny' },
-  { name: 'books', title: '词书', icon: 'library-outline', iconActive: 'library' },
-  { name: 'practice', title: '练习', icon: 'flash-outline', iconActive: 'flash' },
+  { name: 'home', title: '首页', icon: 'home-outline', iconActive: 'home' },
   { name: 'me', title: '我的', icon: 'person-outline', iconActive: 'person' },
 ];
 

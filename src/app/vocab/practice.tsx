@@ -53,20 +53,20 @@ export default function PracticeScreen() {
   const { data, error, reload } = usePracticeLists();
   if (error)
     return (
-      <Screen>
+      <Screen edges={[]}>
         <ErrorView message={error} onRetry={reload} />
       </Screen>
     );
   if (!data)
     return (
-      <Screen>
+      <Screen edges={[]}>
         <Loading />
       </Screen>
     );
   const list = kind === '弱点词' ? data.weak : data.recent;
 
   return (
-    <Screen>
+    <Screen edges={[]}>
       <Txt
         variant="title"
         accessibilityRole="header"
@@ -102,7 +102,9 @@ export default function PracticeScreen() {
             tone="secondary"
             style={{ marginTop: space.xs, textAlign: 'center' }}
           >
-            {kind === '弱点词' ? '背词时选「忘了」的单词会出现在这里。' : '去「今天」开始一组吧。'}
+            {kind === '弱点词'
+              ? '背词时选「忘了」的单词会出现在这里。'
+              : '回到「词汇」开始一组吧。'}
           </Txt>
         </Card>
       ) : (

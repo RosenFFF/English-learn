@@ -81,20 +81,20 @@ export default function BooksScreen() {
   const { data, error, reload } = useBooksOverview();
   if (error)
     return (
-      <Screen>
+      <Screen edges={[]}>
         <ErrorView message={error} onRetry={reload} />
       </Screen>
     );
   if (!data)
     return (
-      <Screen>
+      <Screen edges={[]}>
         <Loading />
       </Screen>
     );
   const active = data.find((b) => b.active);
 
   return (
-    <Screen>
+    <Screen edges={[]}>
       <Txt variant="title" accessibilityRole="header" style={styles.title}>
         词书
       </Txt>

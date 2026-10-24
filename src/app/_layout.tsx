@@ -36,6 +36,20 @@ export default function RootLayout() {
             }}
           >
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            {/* 这两页自己有大标题：导航栏只放返回按钮，底色和页面一致 */}
+            <Stack.Screen
+              name="choose-exam"
+              options={{
+                title: '切换考试',
+                headerTitle: '',
+                headerStyle: { backgroundColor: p.bg },
+              }}
+            />
+            <Stack.Screen name="vocab" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="section/[id]"
+              options={{ headerTitle: '', headerStyle: { backgroundColor: p.bg } }}
+            />
             <Stack.Screen
               name="study"
               options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}

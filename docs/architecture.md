@@ -5,13 +5,30 @@
 
 ## 目录约定
 ```
-src/app/             expo-router 页面：(tabs)/today, books, practice, me
-src/features/<域>/   按业务域组织：study, books, ai, settings
+src/app/             expo-router 页面（路由表见下）
+src/features/<域>/   按业务域组织：exam, study, books, practice, ai, settings, backup, stats
 src/db/              SQLite 打开、迁移、仓储（repository）函数
 src/platform/        原生能力的薄封装（安全存储、朗读、文件读写/分享）；只有这里能 import 原生模块
 src/lib/             纯函数工具（fsrs 封装、日期、llm 客户端）
 assets/db/words.db   只读词库（构建时生成，脚本在 scripts/build-words-db）
 ```
+考试与板块的元数据（考试 id `cet6` / `kaoyan` / `ielts`，板块 id `vocab` / `reading` / `translation` / `writing` / `listening` / `mistakes`）在 `src/lib/exams.ts`，路由白名单和题库表的考试/题型字段都以它为准。
+
+路由表（`/home`、`/me` 在 `src/app/(tabs)/` 下）：
+```
+/                    入口：kv `exam` 没有（或不合法）→ /choose-exam，有 → /home
+/choose-exam         选考试；?from=home|me 时选完返回来源页，首次启动选完进 /home
+/home                当前考试首页（底部 Tab「首页」），按板块列卡片
+/me                  我的（底部 Tab「我的」），顶部「当前考试 · 切换」
+/vocab               词汇板块：今日背词（原「今天」）
+/vocab/books         词书
+/vocab/practice      弱点词 / 生词
+/section/[id]        未上线板块的占位页；id 不在 src/lib/exams.ts 白名单里显示找不到
+/study               背词（全屏）
+/settings            大模型设置
+```
+首页右上角和「我的」里的「切换」走同一个入口（`src/features/exam/navigation.ts`）。
+
 规则：页面只调用 features 暴露的 hook/函数；只有 src/db 能写 SQL；只有 src/platform 能引入除 expo-sqlite 外的原生模块；src/lib 不依赖 React，也不依赖 Expo。
 
 ## 两个数据库

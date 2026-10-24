@@ -11,6 +11,8 @@ import {
   prepareRestoreLatest,
   type AutoBackupInfo,
 } from '@/features/backup/service';
+import { openExamPicker } from '@/features/exam/navigation';
+import { getExam, useSelectedExam } from '@/features/exam/service';
 import { getAutoSpeak, setAutoSpeak, loadLlmSettings } from '@/features/settings/service';
 import { useStats } from '@/features/stats/service';
 import { confirmAsync } from '@/ui/confirm';
@@ -48,6 +50,7 @@ function StatTile({ value, label }: { value: string; label: string }) {
 export default function MeScreen() {
   const p = usePalette();
   const { data, error, reload } = useStats();
+  const { data: examId } = useSelectedExam();
   const [autoSpeak, setAuto] = useState(true);
   const [aiStatus, setAiStatus] = useState('');
   const [msg, setMsg] = useState<{ text: string; tone: 'info' | 'warning' } | null>(null);
@@ -164,6 +167,16 @@ export default function MeScreen() {
       >
         我的
       </Txt>
+
+      <Card style={{ padding: 0, overflow: 'hidden', marginBottom: space.md }}>
+        <Row
+          title={`当前考试：${examId ? getExam(examId).shortName : '未选择'}`}
+          value="切换"
+          onPress={() => openExamPicker('me')}
+          hint="换一门考试，单词进度不受影响"
+          testID="me-switch-exam"
+        />
+      </Card>
 
       <View style={styles.tiles}>
         <StatTile value={String(data.cards.total)} label="已学单词" />

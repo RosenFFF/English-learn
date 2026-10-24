@@ -2,7 +2,7 @@
 
 给自己用的英语词汇学习应用，覆盖四级、六级、考研和 IELTS。第一版是一台安卓手机上的离线应用：没有账号，词书和进度都在本机，讲解走你自己填写的 OpenAI 兼容接口。
 
-当前仓库是骨架。四个标签页（今天 / 词书 / 练习 / 我的）可以打开，API 密钥的安全存储已经接好。SQLite、FSRS、LLM 客户端和真正的学习界面会在后面的 PR 里接上。分层约定见 [docs/architecture.md](docs/architecture.md)。
+打开后先选考试（这一期是六级，考研和雅思即将推出），再进入这门考试的首页按题型练；底部两个标签页是「首页」和「我的」，背单词在「词汇」板块里。API 密钥的安全存储已经接好。SQLite、FSRS、LLM 客户端和真正的学习界面会在后面的 PR 里接上。分层约定见 [docs/architecture.md](docs/architecture.md)。
 
 ## 环境
 
@@ -39,7 +39,7 @@ npm run e2e        # expo export --platform web，再用 Playwright 打开静态
 npx playwright install --with-deps chromium
 ```
 
-`npm run e2e` 会先执行 `npx expo export --platform web`，再用 `scripts/serve-web.mjs` 把 `dist/` 提供给 Playwright。CI 里同样是这条路径。静态站点没有单独的首页文件，第一个标签是 `/today`；本地静态服务器会把 `/` 指到这一页。
+`npm run e2e` 会先执行 `npx expo export --platform web`，再用 `scripts/serve-web.mjs` 把 `dist/` 提供给 Playwright。CI 里同样是这条路径。网页导出是单页应用（`web.output = 'single'`），本地静态服务器把所有路由都交给 `dist/index.html`，由前端路由接管：`/` 没选过考试时进 `/choose-exam`，选过进 `/home`。
 
 ## CI
 
