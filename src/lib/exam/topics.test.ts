@@ -176,6 +176,22 @@ describe('读题兼容 v1（没有 topic）', () => {
     expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/格式不对[\s\S]*topic/) });
   });
 
+  it.each(['banked_cloze', 'matching', 'careful_reading'] as const)(
+    'parseStoredPayload：阅读题 %s 的 v2、v3 都能读出（结构相同，都要有 topic）',
+    (type) => {
+      const text = JSON.stringify(VALID_PAYLOADS[type]);
+      for (const version of [2, 3]) {
+        expect(parseStoredPayload(type, version, text)).toEqual({
+          ok: true,
+          payload: VALID_PAYLOADS[type],
+        });
+        expect(
+          parseStoredPayload(type, version, JSON.stringify(withoutTopic(VALID_PAYLOADS[type]))).ok,
+        ).toBe(false);
+      }
+    },
+  );
+
   it.each([
     ['版本太新', SCHEMA_VERSION + 1, JSON.stringify(VALID_PAYLOADS.essay), /更新版本的 App/],
     ['版本不合法', 0, JSON.stringify(VALID_PAYLOADS.essay), /版本不合法/],
