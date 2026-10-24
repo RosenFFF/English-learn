@@ -14,7 +14,13 @@ import {
   listeningAnswers,
   type ListeningSet,
 } from '../../lib/exam/listening-sheet';
-import { LISTENING_SPEC, type ListeningQuestionType } from '../../lib/exam/listening';
+import {
+  LISTENING_SPEC,
+  isNarrator,
+  type ListeningQuestionType,
+  type QuestionSpeechItem,
+  type SpeechItem,
+} from '../../lib/exam/listening';
 import { sheetReducer, type AnswerSheet, type SheetAction } from '../../lib/exam/reading';
 import type { AttemptRow } from '../../lib/exam/types';
 import {
@@ -36,12 +42,14 @@ export { cet6PaperScore } from '../../lib/exam/cet6-score';
 export { redoOutcomeText } from '../../lib/exam/mistakes';
 export {
   LISTENING_QUESTION_TYPES,
-  NARRATOR_ROLE,
   isListeningQuestionType,
+  isNarrator,
   toSpeechQueue,
   type ListeningQuestionType,
+  type QuestionSpeechItem,
   type SpeechItem,
 } from '../../lib/exam/listening';
+export { plainStem } from '../../lib/exam/sanitize';
 export { gradeListening, stemVisible, type ListeningSet } from '../../lib/exam/listening-sheet';
 export {
   answeredCount,
@@ -207,6 +215,20 @@ export function useListeningSheet(set: ListeningSet): [AnswerSheet, (a: SheetAct
 }
 
 // ---------- 朗读 ----------
+
+/**
+ * 当前这一条如果是旁白在念题，返回这条念题（带 questionIndex 和 displayText）；否则 null。
+ * 判断旁白只看 isNarrator（role），不拿 speaker id 比。
+ */
+export function narratedQuestion(item: SpeechItem | null | undefined): QuestionSpeechItem | null {
+  if (!item || !isNarrator(item)) return null;
+  return item.kind === 'question' ? item : null;
+}
+
+/** 队列里原文（稿子角色念的）有几段：旁白念题不算 */
+export function scriptLineCount(items: readonly SpeechItem[]): number {
+  return items.filter((i) => !isNarrator(i)).length;
+}
 
 /** 系统 TTS 驱动（expo-speech 经 src/platform/speech） */
 export const systemSpeechDriver: SpeechDriver = {

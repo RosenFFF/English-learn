@@ -22,10 +22,14 @@ import * as speech from '../../platform/speech';
 import { StoredQuestionError } from '../generation/llm';
 import {
   loadVoicePlan,
+  narratedQuestion,
+  plainStem,
   prepareListeningRedo,
   prepareListeningSet,
   saveListeningAttempt,
+  scriptLineCount,
   systemSpeechDriver,
+  toSpeechQueue,
 } from './service';
 
 const mockDb: { user: SqlDb | null } = { user: null };
@@ -196,5 +200,58 @@ describe('朗读驱动', () => {
     // 查到了就缓存
     await loadVoicePlan();
     expect(sp.listVoices).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('旁白判断与题干显示（isNarrator / displayText）', () => {
+  it('narratedQuestion：念题条返回这一条（带 questionIndex、displayText），原文条和空值返回 null', () => {
+    const items = toSpeechQueue(DEMO_LONG_CONVERSATION);
+    const n = DEMO_LONG_CONVERSATION.script.length;
+    expect(narratedQuestion(items[0])).toBeNull();
+    expect(narratedQuestion(null)).toBeNull();
+    expect(narratedQuestion(undefined)).toBeNull();
+    const q = narratedQuestion(items[n + 1]);
+    expect(q).toMatchObject({ questionIndex: 1, role: 'narrator' });
+    expect(q!.displayText).toBe(DEMO_LONG_CONVERSATION.questions[1]!.stem);
+    expect(q!.displayText).not.toMatch(/^Question/);
+  });
+
+  it('稿子角色的 id 碰巧叫 "narrator" 也算原文，不当成念题', () => {
+    const payload = {
+      ...DEMO_LONG_CONVERSATION,
+      roles: [
+        { id: 'narrator', name: 'Narrator', gender: 'female' as const },
+        { id: 'M', name: 'Man', gender: 'male' as const },
+      ],
+      script: DEMO_LONG_CONVERSATION.script.map((l) => ({
+        ...l,
+        speaker: l.speaker === 'W' ? 'narrator' : l.speaker,
+      })),
+    };
+    const items = toSpeechQueue(payload);
+    expect(items[0]!.speaker).toBe('narrator');
+    expect(narratedQuestion(items[0])).toBeNull();
+    expect(scriptLineCount(items)).toBe(DEMO_LONG_CONVERSATION.script.length);
+  });
+
+  it('scriptLineCount 不算念题条；关掉念题时等于队列长度', () => {
+    const n = DEMO_LONG_CONVERSATION.script.length;
+    expect(scriptLineCount(toSpeechQueue(DEMO_LONG_CONVERSATION))).toBe(n);
+    const off = toSpeechQueue(DEMO_LONG_CONVERSATION, { readQuestions: false });
+    expect(off).toHaveLength(n);
+    expect(scriptLineCount(off)).toBe(n);
+    expect(scriptLineCount([])).toBe(0);
+  });
+
+  it('displayText 去掉 Markdown，和题目卡片用的 plainStem(q.stem) 一致', () => {
+    const md = '**Why** does the man look _tired_?';
+    const payload = {
+      ...DEMO_LONG_CONVERSATION,
+      questions: DEMO_LONG_CONVERSATION.questions.map((q, i) => (i === 0 ? { ...q, stem: md } : q)),
+    };
+    const q = narratedQuestion(toSpeechQueue(payload)[DEMO_LONG_CONVERSATION.script.length]);
+    expect(q!.displayText).toBe('Why does the man look tired?');
+    expect(q!.displayText).toBe(plainStem(md));
+    expect(q!.text).toBe('Question 1. Why does the man look tired?');
   });
 });
