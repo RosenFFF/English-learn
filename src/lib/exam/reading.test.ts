@@ -7,6 +7,9 @@ import {
   itemsOf,
   needsExitConfirm,
   nextUnanswered,
+  unsavedLeaveCopy,
+  unsavedResetCopy,
+  unsavedSubmitGuard,
   partOffsets,
   sheetReducer,
   splitClozePassage,
@@ -233,6 +236,20 @@ describe('判分、未答计数、提交和退出确认', () => {
     const answered = run(s, { type: 'answer', index: 0, value: 'A' });
     expect(needsExitConfirm(answered)).toBe(true);
     expect(needsExitConfirm(run(answered, { type: 'submit' }))).toBe(false);
+  });
+
+  it('保存失败且卷面已提交：完成、返回不再被 needsExitConfirm 拦住，必须另有放弃确认', () => {
+    const submitted = run(run(createSheet(MATCHING), { type: 'answer', index: 0, value: 'A' }), {
+      type: 'submit',
+    });
+    expect(submitted.submitted).toBe(true);
+    expect(needsExitConfirm(submitted)).toBe(false);
+    expect(unsavedSubmitGuard(true, 'failed')).toBe(true);
+    expect(unsavedSubmitGuard(true, 'saved')).toBe(false);
+    expect(unsavedSubmitGuard(true, 'saving')).toBe(false);
+    expect(unsavedSubmitGuard(false, 'failed')).toBe(false);
+    expect(unsavedLeaveCopy().message).toContain('不会留下');
+    expect(unsavedResetCopy().message).toContain('清空');
   });
 
   it('选项字母：候选词下标转 A–O，字母原样', () => {

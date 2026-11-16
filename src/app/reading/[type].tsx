@@ -13,6 +13,9 @@ import {
   isReadingQuestionType,
   needsExitConfirm,
   redoOutcomeText,
+  unsavedLeaveCopy,
+  unsavedResetCopy,
+  unsavedSubmitGuard,
   submitPrompt,
   submitReadingSet,
   useAnswerSheet,
@@ -68,15 +71,21 @@ function Attempt({
   const total = sheet.answers.length;
   const saveLock = useRef(false);
 
-  // 中途退出（关闭按钮、系统返回、iOS 侧滑）：答过题还没提交时先确认
-  usePreventRemove(needsExitConfirm(sheet) && !leaving, ({ repeat }) => {
-    void confirmAsync('退出这次练习？', `已经答了 ${done} 题，退出后不会保存。`, '退出').then(
-      (ok) => {
-        if (!ok) return;
-        setLeaving(true);
-        repeat();
-      },
-    );
+  // 中途退出（关闭、完成、系统返回）：没交卷，或交了但练习记录没写上，都先确认
+  const failedSave = unsavedSubmitGuard(sheet.submitted, save.kind);
+  usePreventRemove((needsExitConfirm(sheet) || failedSave) && !leaving, ({ repeat }) => {
+    const copy = failedSave
+      ? unsavedLeaveCopy()
+      : {
+          title: '退出这次练习？',
+          message: `已经答了 ${done} 题，退出后不会保存。`,
+          confirm: '退出',
+        };
+    void confirmAsync(copy.title, copy.message, copy.confirm).then((ok) => {
+      if (!ok) return;
+      setLeaving(true);
+      repeat();
+    });
   });
 
   const writeOnce = useCallback(async (): Promise<void> => {
@@ -197,9 +206,15 @@ function Attempt({
                 size="md"
                 disabled={save.kind === 'saving'}
                 onPress={() => {
-                  dispatch({ type: 'reset' });
-                  setSave({ kind: 'idle' });
-                  onRestart();
+                  void (async () => {
+                    if (unsavedSubmitGuard(sheet.submitted, save.kind)) {
+                      const copy = unsavedResetCopy();
+                      if (!(await confirmAsync(copy.title, copy.message, copy.confirm))) return;
+                    }
+                    dispatch({ type: 'reset' });
+                    setSave({ kind: 'idle' });
+                    onRestart();
+                  })();
                 }}
                 testID="reading-retry"
               />

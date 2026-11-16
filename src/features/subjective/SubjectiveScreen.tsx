@@ -30,12 +30,14 @@ import {
   countWords,
   lengthHint,
   redoOutcomeText,
+  reduceGradeScreen,
   saveDraft,
   startSubjective,
   startSubjectiveRedo,
   submitCheck,
   submitSubjective,
   verdictText,
+  type GradeRequestOutcome,
   type DimensionItem,
   type GradeView,
   type PreparedSubjective,
@@ -143,25 +145,38 @@ function Composer({
   const ctrl = useRef<AbortController | null>(null);
   const held = useRef(false);
   const confirming = useRef(false);
+  /** 每次真正交卷加一。返回修改不加：若库已经提交成功，结果仍要显示成已保存。 */
+  const ticket = useRef(0);
   useEffect(() => () => ctrl.current?.abort(), []);
   const grade = useCallback(async () => {
     // 同步占住：确认框连点两次只会有一次真正去评分
     if (held.current) return;
     held.current = true;
+    const my = ++ticket.current;
     ctrl.current?.abort();
     const c = new AbortController();
     ctrl.current = c;
     setStage({ kind: 'grading' });
+    const apply = (outcome: GradeRequestOutcome<GradeView>) => {
+      setStage((prev) => reduceGradeScreen(prev, ticket.current, { ticket: my, outcome }));
+    };
     try {
       await persist(text); // 先把草稿存上，评分失败也不丢
+      if (ticket.current !== my || c.signal.aborted) {
+        apply({ status: 'aborted' });
+        return;
+      }
       const view = await submitSubjective(question, text, startedAt, c.signal, slot);
-      if (ctrl.current !== c || c.signal.aborted) return;
-      setStage({ kind: 'graded', view });
+      // 返回值表示事务已经提交。随后才取消也不改口成「没保存」。
+      apply({ status: 'saved', view });
     } catch (e) {
-      if (ctrl.current !== c || c.signal.aborted || isAbort(e)) return;
-      setStage({ kind: 'gradeError', message: describeGenerationError(e, '评分') });
+      apply(
+        c.signal.aborted || isAbort(e)
+          ? { status: 'aborted' }
+          : { status: 'error', message: describeGenerationError(e, '评分') },
+      );
     } finally {
-      if (ctrl.current === c) held.current = false;
+      if (ticket.current === my) held.current = false;
     }
   }, [persist, question, text, startedAt, slot]);
 

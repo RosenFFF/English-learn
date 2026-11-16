@@ -40,6 +40,12 @@ import { getLlmConfig } from '../settings/service';
 import { notifyDataChanged } from '../shared';
 
 export {
+  reduceGradeScreen,
+  type GradeRequestOutcome,
+  type GradeScreen,
+} from '../../lib/exam/grade-session';
+
+export {
   ANSWER_MAX_LENGTH,
   countHan,
   countWords,
@@ -261,15 +267,21 @@ export async function gradeAndSave(
       };
       ensureActive(opts.deps.signal);
       let stored = row;
+      // 提交边界：事务回调返回之后才 COMMIT。回调里每次 await 之后再看一次取消，
+      // 取消则抛错回滚，作答和清草稿都不会留下。COMMIT 成功之后不再因取消改口。
       await user.withTransactionAsync(async () => {
+        ensureActive(opts.deps.signal);
         stored = await putAttemptOnce(user, row);
+        ensureActive(opts.deps.signal);
         await writeDraft(user, q.type, null, opts.slot);
+        ensureActive(opts.deps.signal);
       });
       return {
         row: stored,
         view: stored.id === row.id ? view : toGradeView(q.type, stored),
       };
     },
+    opts.deps.signal,
   );
 }
 

@@ -215,6 +215,189 @@ it('评分请求已取消：不调用模型或不落库，草稿保留', async (
   expect(await readDraft(user, 'essay')).toEqual(draft);
 });
 
+it('旧请求未结束时取消并立刻用新信号重交：第二次会打分，不会跟着旧请求一起取消', async () => {
+  const { question } = await prepareSubjective(user, 'essay', {
+    deps: { cfg: CFG, chat: fakeChat(DEMO_ESSAY) },
+  });
+  const draft = { questionId: question.id, text: SAMPLE_ESSAY_ANSWER, startedAt: T0, savedAt: T0 };
+  await writeDraft(user, 'essay', draft);
+  let releaseHung!: (value: string) => void;
+  const hung = new Promise<string>((resolve) => {
+    releaseHung = resolve;
+  });
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  const firstCtrl = new AbortController();
+  const chat1 = jest.fn(() => {
+    markStarted();
+    return hung;
+  });
+  const first = gradeAndSave(user, question, SAMPLE_ESSAY_ANSWER, {
+    deps: { cfg: CFG, chat: chat1 as unknown as ChatFn, signal: firstCtrl.signal },
+    startedAt: T0,
+    now: () => T0 + 1000,
+  });
+  await started;
+  firstCtrl.abort();
+  const secondCtrl = new AbortController();
+  const chat2 = jest.fn(async () => JSON.stringify(asModelOutput(DEMO_ESSAY_FEEDBACK)));
+  const second = gradeAndSave(user, question, SAMPLE_ESSAY_ANSWER, {
+    deps: { cfg: CFG, chat: chat2 as unknown as ChatFn, signal: secondCtrl.signal },
+    startedAt: T0,
+    now: () => T0 + 2000,
+  });
+  releaseHung(JSON.stringify(asModelOutput(DEMO_ESSAY_FEEDBACK)));
+  await expect(first).rejects.toMatchObject({ kind: 'aborted' });
+  const saved = await second;
+  expect(chat2).toHaveBeenCalledTimes(1);
+  expect(saved.row.answer).toBe(JSON.stringify(SAMPLE_ESSAY_ANSWER));
+  expect(await listAttemptsForQuestion(user, question.id)).toHaveLength(1);
+  expect(await readDraft(user, 'essay')).toBeNull();
+});
+
+it('事务刚开始或写入过程中取消：整笔回滚，草稿还在', async () => {
+  const { question } = await prepareSubjective(user, 'essay', {
+    deps: { cfg: CFG, chat: fakeChat(DEMO_ESSAY) },
+  });
+  const draft = { questionId: question.id, text: SAMPLE_ESSAY_ANSWER, startedAt: T0, savedAt: T0 };
+  await writeDraft(user, 'essay', draft);
+  const ctrl = new AbortController();
+  const db: SqlDb = {
+    execAsync: (sql) => user.execAsync(sql),
+    getAllAsync: (sql, params) => user.getAllAsync(sql, params),
+    getFirstAsync: (sql, params) => user.getFirstAsync(sql, params),
+    async withTransactionAsync(task) {
+      ctrl.abort();
+      return user.withTransactionAsync(task);
+    },
+    runAsync: (sql, params) => user.runAsync(sql, params),
+  };
+  await expect(
+    gradeAndSave(db, question, SAMPLE_ESSAY_ANSWER, {
+      deps: {
+        cfg: CFG,
+        chat: fakeChat(asModelOutput(DEMO_ESSAY_FEEDBACK)) as unknown as ChatFn,
+        signal: ctrl.signal,
+      },
+      startedAt: T0,
+    }),
+  ).rejects.toMatchObject({ kind: 'aborted' });
+  expect(await listAttemptsForQuestion(user, question.id)).toHaveLength(0);
+  expect(await readDraft(user, 'essay')).toEqual(draft);
+});
+
+it('写入过程中取消：已经插入的作答回滚，草稿保持原样', async () => {
+  const { question } = await prepareSubjective(user, 'essay', {
+    deps: { cfg: CFG, chat: fakeChat(DEMO_ESSAY) },
+  });
+  const draft = { questionId: question.id, text: SAMPLE_ESSAY_ANSWER, startedAt: T0, savedAt: T0 };
+  await writeDraft(user, 'essay', draft);
+  const ctrl = new AbortController();
+  const db: SqlDb = {
+    execAsync: (sql) => user.execAsync(sql),
+    getAllAsync: (sql, params) => user.getAllAsync(sql, params),
+    getFirstAsync: (sql, params) => user.getFirstAsync(sql, params),
+    withTransactionAsync: (task) => user.withTransactionAsync(task),
+    async runAsync(sql, params) {
+      const result = await user.runAsync(sql, params);
+      if (sql.startsWith('INSERT INTO attempt')) ctrl.abort();
+      return result;
+    },
+  };
+  await expect(
+    gradeAndSave(db, question, SAMPLE_ESSAY_ANSWER, {
+      deps: {
+        cfg: CFG,
+        chat: fakeChat(asModelOutput(DEMO_ESSAY_FEEDBACK)) as unknown as ChatFn,
+        signal: ctrl.signal,
+      },
+      startedAt: T0,
+    }),
+  ).rejects.toMatchObject({ kind: 'aborted' });
+  expect(await listAttemptsForQuestion(user, question.id)).toHaveLength(0);
+  expect(await readDraft(user, 'essay')).toEqual(draft);
+});
+
+it('事务提交成功之后才取消：当作已保存，同一份答案再交不插第二行', async () => {
+  const { question } = await prepareSubjective(user, 'essay', {
+    deps: { cfg: CFG, chat: fakeChat(DEMO_ESSAY) },
+  });
+  await writeDraft(user, 'essay', {
+    questionId: question.id,
+    text: SAMPLE_ESSAY_ANSWER,
+    startedAt: T0,
+    savedAt: T0,
+  });
+  const ctrl = new AbortController();
+  const db: SqlDb = {
+    execAsync: (sql) => user.execAsync(sql),
+    getAllAsync: (sql, params) => user.getAllAsync(sql, params),
+    getFirstAsync: (sql, params) => user.getFirstAsync(sql, params),
+    async withTransactionAsync(task) {
+      await user.withTransactionAsync(task);
+      ctrl.abort();
+    },
+    runAsync: (sql, params) => user.runAsync(sql, params),
+  };
+  const saved = await gradeAndSave(db, question, SAMPLE_ESSAY_ANSWER, {
+    deps: {
+      cfg: CFG,
+      chat: fakeChat(asModelOutput(DEMO_ESSAY_FEEDBACK)) as unknown as ChatFn,
+      signal: ctrl.signal,
+    },
+    startedAt: T0,
+    now: () => T0 + 1000,
+  });
+  expect(saved.view.score).toBe(8);
+  expect(ctrl.signal.aborted).toBe(true);
+  expect(await listAttemptsForQuestion(user, question.id)).toHaveLength(1);
+  expect(await readDraft(user, 'essay')).toBeNull();
+  const chat = jest.fn();
+  const again = await gradeAndSave(user, question, SAMPLE_ESSAY_ANSWER, {
+    deps: { cfg: CFG, chat: chat as unknown as ChatFn },
+    startedAt: T0,
+    now: () => T0 + 2000,
+  });
+  expect(chat).not.toHaveBeenCalled();
+  expect(again.row.id).toBe(saved.row.id);
+  expect(await listAttemptsForQuestion(user, question.id)).toHaveLength(1);
+});
+
+it('已取消的旧评分晚返回时，不清掉后来的草稿，也不插入作答', async () => {
+  const { question } = await prepareSubjective(user, 'essay', {
+    deps: { cfg: CFG, chat: fakeChat(DEMO_ESSAY) },
+  });
+  const draft = { questionId: question.id, text: SAMPLE_ESSAY_ANSWER, startedAt: T0, savedAt: T0 };
+  await writeDraft(user, 'essay', draft);
+  let releaseHung!: (value: string) => void;
+  const hung = new Promise<string>((resolve) => {
+    releaseHung = resolve;
+  });
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  const firstCtrl = new AbortController();
+  const chat1 = jest.fn(() => {
+    markStarted();
+    return hung;
+  });
+  const first = gradeAndSave(user, question, SAMPLE_ESSAY_ANSWER, {
+    deps: { cfg: CFG, chat: chat1 as unknown as ChatFn, signal: firstCtrl.signal },
+    startedAt: T0,
+  });
+  await started;
+  firstCtrl.abort();
+  const newer = { ...draft, text: `${SAMPLE_ESSAY_ANSWER} more.`, savedAt: T0 + 5 };
+  await writeDraft(user, 'essay', newer);
+  releaseHung(JSON.stringify(asModelOutput(DEMO_ESSAY_FEEDBACK)));
+  await expect(first).rejects.toMatchObject({ kind: 'aborted' });
+  expect(await listAttemptsForQuestion(user, question.id)).toHaveLength(0);
+  expect(await readDraft(user, 'essay')).toEqual(newer);
+});
+
 it('评分失败：不写 attempt、草稿还在，可以重试', async () => {
   const { question } = await prepareSubjective(user, 'essay', {
     deps: { cfg: CFG, chat: fakeChat(DEMO_ESSAY) },

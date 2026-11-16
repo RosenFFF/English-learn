@@ -1,18 +1,28 @@
 /**
- * 同一把钥匙上、还没结束的调用共用一个 Promise（重复点击不会各跑一遍）。
+ * 同一把钥匙、同一次请求（同一个 AbortSignal，且还没取消）上还没结束的调用共用一个 Promise。
+ * 用来挡住双击。已经取消的请求不把后来的新信号绑上去，否则新的重交会跟着旧 Promise 一起失败。
  * 成功或失败后钥匙就释放：失败可以马上重试；下一次调用会重新执行，
  * 要不要再写库由调用方按「同一题、同一次开始时间、同一份答案」判断。
  */
-const inflight = new Map<string, Promise<unknown>>();
+interface Inflight {
+  signal: AbortSignal | undefined;
+  promise: Promise<unknown>;
+}
 
-export function singleFlight<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const hit = inflight.get(key) as Promise<T> | undefined;
-  if (hit) return hit;
+const inflight = new Map<string, Inflight>();
+
+export function singleFlight<T>(
+  key: string,
+  fn: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const hit = inflight.get(key);
+  if (hit && hit.signal === signal && !signal?.aborted) return hit.promise as Promise<T>;
   const run = fn();
   const p = run.finally(() => {
-    if (inflight.get(key) === p) inflight.delete(key);
+    if (inflight.get(key)?.promise === p) inflight.delete(key);
   });
-  inflight.set(key, p);
+  inflight.set(key, { signal, promise: p });
   return p;
 }
 

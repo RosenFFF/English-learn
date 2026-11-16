@@ -1,7 +1,7 @@
 import { singleFlight, submissionFlightKey } from './singleFlight';
 
 describe('singleFlight', () => {
-  it('进行中的调用共用一个结果；结束后下一次会重新执行', async () => {
+  it('同一个信号上进行中的调用共用一个结果；结束后下一次会重新执行', async () => {
     let n = 0;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -35,6 +35,21 @@ describe('singleFlight', () => {
       }),
     ).resolves.toBe('ok');
     expect(n).toBe(2);
+  });
+
+  it('已经取消的请求不吞掉随后用新信号发起的同钥匙调用', async () => {
+    const firstCtrl = new AbortController();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const first = singleFlight('k', () => gate.then(() => 'old'), firstCtrl.signal);
+    firstCtrl.abort();
+    const secondCtrl = new AbortController();
+    const second = singleFlight('k', async () => 'new', secondCtrl.signal);
+    release();
+    await expect(second).resolves.toBe('new');
+    await expect(first).resolves.toBe('old');
   });
 });
 

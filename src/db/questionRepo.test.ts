@@ -665,3 +665,17 @@ describe('listOpenMistakes（错题本）', () => {
     expect((await qrepo.listAttemptsForQuestion(db, 'r1'))[0]!.id).toBe('z-b');
   });
 });
+
+describe('外键', () => {
+  it('本机 node:sqlite 默认已打开外键，和生产 PRAGMA foreign_keys=ON 一致；关掉才会插入悬空作答', async () => {
+    const db = openMemoryDb();
+    await runMigrations(db, MIGRATIONS, T0);
+    const flag = await db.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys', []);
+    expect(flag?.foreign_keys).toBe(1);
+    await expect(qrepo.insertAttempt(db, attempt('orphan', 'missing'))).rejects.toThrow();
+
+    await db.execAsync('PRAGMA foreign_keys = OFF');
+    await qrepo.insertAttempt(db, attempt('orphan', 'missing'));
+    expect(await qrepo.listAttemptsForQuestion(db, 'missing')).toHaveLength(1);
+  });
+});

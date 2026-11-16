@@ -290,6 +290,33 @@ export function needsExitConfirm(sheet: AnswerSheet): boolean {
   return !sheet.submitted && answeredCount(sheet) > 0;
 }
 
+export type PracticeSaveKind = 'idle' | 'saving' | 'saved' | 'failed';
+
+/**
+ * 卷面已经锁定、但练习记录没写上。
+ * 这时 needsExitConfirm 为 false（因为它只看「还没提交」），
+ * 点完成、返回或再做一遍都会在不确认的情况下丢掉这次答案。
+ */
+export function unsavedSubmitGuard(submitted: boolean, save: PracticeSaveKind): boolean {
+  return submitted && save === 'failed';
+}
+
+export function unsavedLeaveCopy(): { title: string; message: string; confirm: string } {
+  return {
+    title: '离开这次练习？',
+    message: '练习记录没保存上，离开后这次答案不会留下。',
+    confirm: '离开',
+  };
+}
+
+export function unsavedResetCopy(): { title: string; message: string; confirm: string } {
+  return {
+    title: '再做一遍？',
+    message: '这次作答还没保存。再做一遍会清空已选答案。',
+    confirm: '清空重做',
+  };
+}
+
 /** 选项显示用的字母：选词填空的下标转 A–O，其余本身就是字母 */
 export function valueLabel(v: AnswerValue): string {
   return typeof v === 'number' ? letterOf(v) : v;

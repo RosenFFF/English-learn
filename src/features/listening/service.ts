@@ -57,6 +57,9 @@ export {
   letterOf,
   needsExitConfirm,
   submitPrompt,
+  unsavedLeaveCopy,
+  unsavedResetCopy,
+  unsavedSubmitGuard,
   type AnswerSheet,
   type GradeResult,
 } from '../../lib/exam/reading';

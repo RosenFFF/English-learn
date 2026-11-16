@@ -26,6 +26,9 @@ import {
   narratedQuestion,
   needsExitConfirm,
   plainStem,
+  unsavedLeaveCopy,
+  unsavedResetCopy,
+  unsavedSubmitGuard,
   redoOutcomeText,
   startListeningRedo,
   startListeningSet,
@@ -162,14 +165,20 @@ function Attempt({
   // 渲染时调整（React 推荐的「根据变化更新 state」写法，不用 effect）
   if (reading !== null && reading > readUpTo) setReadUpTo(reading);
 
-  usePreventRemove(needsExitConfirm(sheet) && !leaving, ({ repeat }) => {
-    void confirmAsync('退出这次练习？', `已经答了 ${done} 题，退出后不会保存。`, '退出').then(
-      (ok) => {
-        if (!ok) return;
-        setLeaving(true);
-        repeat();
-      },
-    );
+  const failedSave = unsavedSubmitGuard(sheet.submitted, save.kind);
+  usePreventRemove((needsExitConfirm(sheet) || failedSave) && !leaving, ({ repeat }) => {
+    const copy = failedSave
+      ? unsavedLeaveCopy()
+      : {
+          title: '退出这次练习？',
+          message: `已经答了 ${done} 题，退出后不会保存。`,
+          confirm: '退出',
+        };
+    void confirmAsync(copy.title, copy.message, copy.confirm).then((ok) => {
+      if (!ok) return;
+      setLeaving(true);
+      repeat();
+    });
   });
 
   const writeOnce = useCallback(async (): Promise<void> => {
@@ -207,12 +216,18 @@ function Attempt({
   };
 
   const retry = useCallback(() => {
-    player.stop();
-    dispatch({ type: 'reset' });
-    setSave({ kind: 'idle' });
-    setReadUpTo(-1);
-    onRestart();
-  }, [player, dispatch, onRestart]);
+    void (async () => {
+      if (unsavedSubmitGuard(sheet.submitted, save.kind)) {
+        const copy = unsavedResetCopy();
+        if (!(await confirmAsync(copy.title, copy.message, copy.confirm))) return;
+      }
+      player.stop();
+      dispatch({ type: 'reset' });
+      setSave({ kind: 'idle' });
+      setReadUpTo(-1);
+      onRestart();
+    })();
+  }, [player, dispatch, onRestart, sheet.submitted, save.kind]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: p.bg }} edges={['top', 'bottom']}>
