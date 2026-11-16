@@ -5,7 +5,7 @@
 import { useReducer } from 'react';
 
 import { getDatabases } from '../../db/open';
-import { insertAttempt } from '../../db/questionRepo';
+import { putAttemptOnce } from '../../db/questionRepo';
 import type { SqlDb } from '../../db/types';
 import { gradeObjective, type ObjectiveGrade, type ObjectiveQuestion } from '../../lib/exam/grade';
 import {
@@ -18,6 +18,7 @@ import {
   type SheetAction,
 } from '../../lib/exam/reading';
 import type { AttemptRow } from '../../lib/exam/types';
+import { singleFlight, submissionFlightKey } from '../../lib/singleFlight';
 import { uuidv4 } from '../../lib/uuid';
 import { readSelectedExam } from '../exam/service';
 import { describeGenerationError, LlmNotConfiguredError } from '../generation/llm';
@@ -47,6 +48,9 @@ export {
   letterOf,
   needsExitConfirm,
   partOffsets,
+  unsavedLeaveCopy,
+  unsavedResetCopy,
+  unsavedSubmitGuard,
   splitClozePassage,
   submitPrompt,
   unansweredCount,
@@ -186,6 +190,8 @@ export async function startReadingRedo(
 /**
  * 判分并写 attempt：每道题一行。客观题 score = 答对题数、max_score = 小题数、
  * wrong_count = 答错（含未答）题数、needs_redo = 0、feedback = null（同 grade.ts 的规则）。
+ * 一次交卷的多行（仔细阅读两篇）在同一个事务里写完，中途失败则一行都不留。
+ * 同一题、同一次开始时间、同一份答案再交一次（重复点击或保存重试）不会再插入。
  */
 export async function saveReadingAttempts(
   user: SqlDb,
@@ -221,8 +227,19 @@ export async function saveReadingAttempts(
       submitted_at: times.submittedAt,
     });
   });
-  for (const r of rows) await insertAttempt(user, r);
-  return { rows, grades };
+  const stored = await singleFlight(
+    submissionFlightKey(
+      rows.map((r) => ({ questionId: r.question_id, startedAt: r.started_at, answer: r.answer })),
+    ),
+    async () => {
+      const out: AttemptRow[] = [];
+      await user.withTransactionAsync(async () => {
+        for (const row of rows) out.push(await putAttemptOnce(user, row));
+      });
+      return out;
+    },
+  );
+  return { rows: stored, grades };
 }
 
 /** 页面用：交卷写记录；返回每道题答错的题数（错题本重做据此提示移没移出） */

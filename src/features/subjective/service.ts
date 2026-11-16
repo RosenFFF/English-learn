@@ -3,7 +3,7 @@
  * 页面只经过这里（src/lib、src/db 不让页面直接引用）。
  */
 import { getDatabases } from '../../db/open';
-import { insertAttempt } from '../../db/questionRepo';
+import { findAttemptBySubmission, putAttemptOnce } from '../../db/questionRepo';
 import type { SqlDb } from '../../db/types';
 import { kvGet, kvSet } from '../../db/userRepo';
 import type { LlmDeps } from '../../lib/exam/generate';
@@ -19,11 +19,14 @@ import {
   draftKey,
   gradeToView,
   parseDraft,
+  toGradeView,
   type DraftSlot,
   type GradeView,
   type SubjectiveDraft,
 } from '../../lib/exam/subjective';
 import { QUESTION_SECTION, type AttemptRow, type SubjectiveType } from '../../lib/exam/types';
+import { LlmError } from '../../lib/llm';
+import { singleFlight, submissionFlightKey } from '../../lib/singleFlight';
 import { uuidv4 } from '../../lib/uuid';
 import { readSelectedExam } from '../exam/service';
 import { LlmNotConfiguredError } from '../generation/llm';
@@ -35,6 +38,12 @@ import {
 } from '../generation/questions';
 import { getLlmConfig } from '../settings/service';
 import { notifyDataChanged } from '../shared';
+
+export {
+  reduceGradeScreen,
+  type GradeRequestOutcome,
+  type GradeScreen,
+} from '../../lib/exam/grade-session';
 
 export {
   ANSWER_MAX_LENGTH,
@@ -197,10 +206,31 @@ function callGrade(q: SubjectiveQuestion, answer: string, deps: LlmDeps): Promis
     : gradeEssay(q.payload as EssayPayload, answer, deps);
 }
 
+function ensureActive(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new LlmError('aborted', '已取消');
+}
+
+/** 同一份答案已经写过：直接用那条记录，不再打分。清草稿失败也不把这次说成没评上。 */
+async function replaySaved(
+  user: SqlDb,
+  type: SubjectiveType,
+  row: AttemptRow,
+  slot: DraftSlot | undefined,
+): Promise<{ view: GradeView; row: AttemptRow }> {
+  try {
+    await writeDraft(user, type, null, slot);
+  } catch {
+    // 作答已经在库里。这里再抛出会让界面显示「没评上分」，和错题本不一致。
+  }
+  return { view: toGradeView(type, row), row };
+}
+
 /**
  * 评分并写 attempt（成功后才写；失败抛错，草稿保留可重试）。
  * 主观题：score = 0–15、max_score = 15、wrong_count = 0、needs_redo = score < 9、
- * feedback = 带 version 的点评 JSON（subjectiveAttemptFields）。写完清掉草稿。
+ * feedback = 带 version 的点评 JSON（subjectiveAttemptFields）。
+ * 作答记录和清草稿在同一个事务里：清草稿失败则作答也回滚，界面不会把没写上的分数说成已保存。
+ * 请求已经取消（返回修改、再交一次）时不落库。同一份答案再交一次不会再插一行，也不再打分。
  */
 export async function gradeAndSave(
   user: SqlDb,
@@ -208,26 +238,51 @@ export async function gradeAndSave(
   answer: string,
   opts: { deps: LlmDeps; startedAt: number; now?: () => number; slot?: DraftSlot },
 ): Promise<{ view: GradeView; row: AttemptRow }> {
-  const grade = await callGrade(q, answer, opts.deps);
-  // 评分字段（score、max_score、feedback JSON、wrong_count、needs_redo）一律由 feedback.ts 生成
-  const { fields, view } = gradeToView<object>(q.type, grade as SubjectiveGrade<object>);
-  const submittedAt = (opts.now ?? Date.now)();
-  const exam = (await readSelectedExam(user)) ?? 'cet6';
-  const row: AttemptRow = {
-    id: uuidv4(),
-    question_id: q.id,
-    exam,
-    section: QUESTION_SECTION[q.type],
-    type: q.type,
-    answer: JSON.stringify(answer),
-    ...fields,
-    duration_ms: Math.max(0, submittedAt - opts.startedAt),
-    started_at: opts.startedAt,
-    submitted_at: submittedAt,
-  };
-  await insertAttempt(user, row);
-  await writeDraft(user, q.type, null, opts.slot);
-  return { view, row };
+  const answerJson = JSON.stringify(answer);
+  return singleFlight(
+    submissionFlightKey([
+      { questionId: q.id, startedAt: opts.startedAt, answer: answerJson, slot: opts.slot },
+    ]),
+    async () => {
+      ensureActive(opts.deps.signal);
+      const found = await findAttemptBySubmission(user, q.id, opts.startedAt, answerJson);
+      if (found) return replaySaved(user, q.type, found, opts.slot);
+      ensureActive(opts.deps.signal);
+      const grade = await callGrade(q, answer, opts.deps);
+      ensureActive(opts.deps.signal);
+      const { fields, view } = gradeToView<object>(q.type, grade as SubjectiveGrade<object>);
+      const submittedAt = (opts.now ?? Date.now)();
+      const exam = (await readSelectedExam(user)) ?? 'cet6';
+      const row: AttemptRow = {
+        id: uuidv4(),
+        question_id: q.id,
+        exam,
+        section: QUESTION_SECTION[q.type],
+        type: q.type,
+        answer: answerJson,
+        ...fields,
+        duration_ms: Math.max(0, submittedAt - opts.startedAt),
+        started_at: opts.startedAt,
+        submitted_at: submittedAt,
+      };
+      ensureActive(opts.deps.signal);
+      let stored = row;
+      // 提交边界：事务回调返回之后才 COMMIT。回调里每次 await 之后再看一次取消，
+      // 取消则抛错回滚，作答和清草稿都不会留下。COMMIT 成功之后不再因取消改口。
+      await user.withTransactionAsync(async () => {
+        ensureActive(opts.deps.signal);
+        stored = await putAttemptOnce(user, row);
+        ensureActive(opts.deps.signal);
+        await writeDraft(user, q.type, null, opts.slot);
+        ensureActive(opts.deps.signal);
+      });
+      return {
+        row: stored,
+        view: stored.id === row.id ? view : toGradeView(q.type, stored),
+      };
+    },
+    opts.deps.signal,
+  );
 }
 
 /** 页面用：交卷评分 */

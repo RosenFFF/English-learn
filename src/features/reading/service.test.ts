@@ -7,7 +7,12 @@
 import { openMemoryDb } from '../../db/__testutils__/nodeDb';
 import { runMigrations } from '../../db/migrate';
 import { MIGRATIONS } from '../../db/migrations';
-import { insertQuestion, listAttemptsForQuestion, listQuestions } from '../../db/questionRepo';
+import {
+  insertQuestion,
+  listAttemptsForQuestion,
+  listOpenMistakes,
+  listQuestions,
+} from '../../db/questionRepo';
 import type { SqlDb } from '../../db/types';
 import { kvSet } from '../../db/userRepo';
 import type { ChatFn } from '../../lib/exam/generate';
@@ -20,6 +25,7 @@ import {
 } from '../../lib/exam/__testutils__/reading-fixtures';
 import type { LlmConfig } from '../../lib/llm';
 import * as secureStore from '../../platform/secure-store';
+import { practiceSaveError } from '../generation/llm';
 import {
   ReadingNotConfiguredError,
   describeReadingError,
@@ -284,6 +290,66 @@ describe('交卷写记录', () => {
       [set.parts[1]!.id, 5, 5, 0],
     ]);
     expect(JSON.parse(rows[1]!.answer)).toEqual(DEMO_CAREFUL[1].questions.map((q) => q.answer));
+  });
+
+  it('仔细阅读两篇同一事务：第二篇写失败则一篇都不留，错题本不变；同一份答案重试或连点只留一份', async () => {
+    const { set } = await prepareReadingSet(user, 'careful_reading', {
+      deps: { cfg: CFG, chat: fakeChat(DEMO_CAREFUL[0], DEMO_CAREFUL[1]) },
+    });
+    const wrong = DEMO_CAREFUL.flatMap((p) =>
+      p.questions.map((q, i) => (i === 0 ? (q.answer === 'A' ? 'B' : 'A') : q.answer)),
+    );
+    const sheet = answerAll(set, wrong);
+    const times = { startedAt: T0, submittedAt: T0 + 1 };
+    let inserts = 0;
+    const flaky: SqlDb = {
+      execAsync: (sql) => user.execAsync(sql),
+      getAllAsync: (sql, params) => user.getAllAsync(sql, params),
+      getFirstAsync: (sql, params) => user.getFirstAsync(sql, params),
+      withTransactionAsync: (task) => user.withTransactionAsync(task),
+      async runAsync(sql, params) {
+        if (sql.startsWith('INSERT INTO attempt')) {
+          inserts += 1;
+          if (inserts === 2) throw new Error('磁盘写满');
+        }
+        return user.runAsync(sql, params);
+      },
+    };
+    await expect(saveReadingAttempts(flaky, set, sheet, times)).rejects.toThrow(/磁盘写满/);
+    expect(await listAttemptsForQuestion(user, set.parts[0]!.id)).toEqual([]);
+    expect(await listAttemptsForQuestion(user, set.parts[1]!.id)).toEqual([]);
+    expect(await listOpenMistakes(user, 'cet6')).toEqual([]);
+
+    const { rows } = await saveReadingAttempts(user, set, sheet, times);
+    expect(rows).toHaveLength(2);
+    const again = await saveReadingAttempts(user, set, sheet, times);
+    expect(again.rows.map((r) => r.id)).toEqual(rows.map((r) => r.id));
+    const [parallelA, parallelB] = await Promise.all([
+      saveReadingAttempts(user, set, sheet, times),
+      saveReadingAttempts(user, set, sheet, times),
+    ]);
+    expect(parallelA.rows.map((r) => r.id)).toEqual(rows.map((r) => r.id));
+    expect(parallelB.rows.map((r) => r.id)).toEqual(rows.map((r) => r.id));
+    for (const part of set.parts) {
+      expect(await listAttemptsForQuestion(user, part.id)).toHaveLength(1);
+    }
+    const open = await listOpenMistakes(user, 'cet6');
+    expect(open).toHaveLength(2);
+    expect(open.every((r) => r.miss_times === 1 && r.wrong_count > 0)).toBe(true);
+
+    // 再做一遍会换开始时间，是新的一次作答
+    await saveReadingAttempts(user, set, sheet, { startedAt: T0 + 10, submittedAt: T0 + 11 });
+    expect(await listAttemptsForQuestion(user, set.parts[0]!.id)).toHaveLength(2);
+  });
+});
+
+describe('保存失败提示', () => {
+  it('不说成功，并写明可以重试、答案还在', () => {
+    expect(practiceSaveError(new Error('磁盘写满'))).toBe(
+      '没保存上（磁盘写满）。请点「重试保存」，已选答案还在。',
+    );
+    expect(practiceSaveError('x')).toContain('重试保存');
+    expect(practiceSaveError(new Error('磁盘写满'))).not.toContain('已保存');
   });
 });
 

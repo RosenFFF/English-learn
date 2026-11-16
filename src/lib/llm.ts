@@ -61,6 +61,29 @@ export function validateConfig(cfg: Partial<LlmConfig>): cfg is LlmConfig {
 
 const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** 退避等待。取消时立刻结束，不等待 sleep 自己跑完，避免取消后的窗口被重试间隔拉长。 */
+async function pauseForRetry(
+  ms: number,
+  signal: AbortSignal | undefined,
+  sleep: (ms: number) => Promise<void>,
+): Promise<void> {
+  if (signal?.aborted) throw new LlmError('aborted', '已取消');
+  if (!signal) {
+    await sleep(ms);
+    return;
+  }
+  let onAbort: () => void = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(new LlmError('aborted', '已取消'));
+    signal.addEventListener('abort', onAbort);
+  });
+  try {
+    await Promise.race([sleep(ms), aborted]);
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+  }
+}
+
 function classifyStatus(status: number): LlmErrorKind {
   if (status === 401 || status === 403) return 'auth';
   if (status === 429) return 'rate_limit';
@@ -131,7 +154,7 @@ export async function chat(
     } catch (e) {
       const err = e as LlmError;
       if (i >= maxRetries || !RETRYABLE.has(err.kind) || opts.signal?.aborted) throw err;
-      await sleep(500 * 2 ** i + Math.floor(Math.random() * 250));
+      await pauseForRetry(500 * 2 ** i + Math.floor(Math.random() * 250), opts.signal, sleep);
     }
   }
 }

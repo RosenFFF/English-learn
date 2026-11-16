@@ -167,6 +167,37 @@ describe('备份 v2：题库和作答记录', () => {
   });
 
   it.each([
+    ['0', 0],
+    ['负数', -1],
+    ['小数', 1.5],
+    ['缺版本', null],
+    ['字符串', '2'],
+  ])('无法识别的版本（%s）在解析阶段拒绝，不当成 v1', (_name, version) => {
+    expect(() => parseBackup(JSON.stringify({ ...v2, version }))).toThrow(BackupError);
+    expect(() => parseBackup(JSON.stringify({ ...v2, version }))).toThrow(/无法识别的备份版本/);
+  });
+
+  it('主键重复、作答和题目对不上：解析阶段拒绝', () => {
+    expect(() => parseBackup(JSON.stringify({ ...v2, question: [question, question] }))).toThrow(
+      /question 第 2 行主键重复/,
+    );
+    expect(() =>
+      parseBackup(
+        JSON.stringify({
+          ...valid,
+          card: [valid.card[0], { ...valid.card[0], due: 9 }],
+        }),
+      ),
+    ).toThrow(/card 第 2 行主键重复/);
+    expect(() =>
+      parseBackup(JSON.stringify({ ...v2, attempt: [{ ...attempt, type: 'matching' }] })),
+    ).toThrow(/attempt 第 1 行和对应题目的考试或题型不一致/);
+    expect(() =>
+      parseBackup(JSON.stringify({ ...v2, attempt: [{ ...attempt, exam: 'ielts' }] })),
+    ).toThrow(/考试或题型不一致/);
+  });
+
+  it.each([
     ['v2 缺 question', { ...v2, question: undefined }, /缺少 question/],
     ['v2 缺 attempt', { ...v2, attempt: undefined }, /缺少 attempt/],
     ['题目 id 不是字符串', { ...v2, question: [{ ...question, id: 1 }] }, /question 第 1 行/],

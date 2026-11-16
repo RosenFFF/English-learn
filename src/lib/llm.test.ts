@@ -82,4 +82,27 @@ describe('chat', () => {
     await expect(p).rejects.toMatchObject({ kind: 'aborted' });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+  it('退避等待时取消，不再发起下一次请求', async () => {
+    const ac = new AbortController();
+    const fetchImpl = jest.fn().mockResolvedValue(new Response('', { status: 503 }));
+    let releaseSleep!: () => void;
+    const sleep = jest.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseSleep = resolve;
+          queueMicrotask(() => ac.abort());
+        }),
+    );
+    await expect(
+      chat(cfg, [], {
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        sleep,
+        signal: ac.signal,
+        maxRetries: 2,
+      }),
+    ).rejects.toMatchObject({ kind: 'aborted' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sleep).toHaveBeenCalledTimes(1);
+    releaseSleep();
+  });
 });

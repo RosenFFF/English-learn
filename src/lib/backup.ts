@@ -17,6 +17,8 @@ export const BACKUP_FORMAT = 'english-learn-backup';
  * 备份格式版本。
  * v1：学习进度和设置。
  * v2：增加题库 question 和作答记录 attempt；v1 文件仍能导入（题库视为空）。
+ * 只接受这两个版本。缺版本、0、负数、小数，以及比当前版本新的号，都在解析阶段拒绝，
+ * 调用方不应再去恢复，因此不会先清空现有数据。
  */
 export const BACKUP_VERSION = 2;
 
@@ -145,6 +147,20 @@ function checkRows(name: string, v: unknown, check: (o: Record<string, unknown>)
   });
 }
 
+/** 同一张表里主键重复就拒绝。导入是整体替换，不能靠后一行悄悄盖住前一行。 */
+function rejectDuplicateKeys(
+  name: string,
+  rows: readonly object[],
+  keyOf: (row: object) => string,
+): void {
+  const seen = new Set<string>();
+  rows.forEach((row, i) => {
+    const key = keyOf(row);
+    if (seen.has(key)) throw new BackupError(`备份文件的 ${name} 第 ${i + 1} 行主键重复`);
+    seen.add(key);
+  });
+}
+
 export function parseBackup(text: string): BackupPayload {
   let data: unknown;
   try {
@@ -154,8 +170,15 @@ export function parseBackup(text: string): BackupPayload {
   }
   const o = data as Record<string, unknown> | null;
   if (!o || o.format !== BACKUP_FORMAT) throw new BackupError('不是 English Learn 的备份文件');
-  if (!isNum(o.version) || o.version > BACKUP_VERSION)
-    throw new BackupError('备份文件版本太新，请先升级 App');
+  // 只接受已经声明过的 v1 / v2。更新的号提示升级；其余（0、负数、小数、缺版本）
+  // 不能当成 v1，否则会把题库清空。
+  if (o.version !== 1 && o.version !== 2) {
+    throw new BackupError(
+      typeof o.version === 'number' && o.version > BACKUP_VERSION
+        ? '备份文件版本太新，请先升级 App'
+        : '无法识别的备份版本，已拒绝导入，现有数据没有改动',
+    );
+  }
   checkRows(
     'card',
     o.card,
@@ -185,17 +208,32 @@ export function parseBackup(text: string): BackupPayload {
   );
   checkRows('daily_stat', o.daily_stat, (r) => isStr(r.date) && /^\d{4}-\d{2}-\d{2}$/.test(r.date));
   checkRows('kv', o.kv, (r) => isStr(r.key) && isStr(r.value));
-  // v1 没有题库：当成空数组；v2 起这两张表必须有且行格式正确
+  const cardRows = o.card as object[];
+  const logRows = o.review_log as object[];
+  const planRows = o.study_plan as object[];
+  const statRows = o.daily_stat as object[];
+  const kvRows = o.kv as object[];
+  rejectDuplicateKeys('card', cardRows, (r) => String((r as { word_id: number }).word_id));
+  rejectDuplicateKeys('review_log', logRows, (r) => (r as { id: string }).id);
+  rejectDuplicateKeys('study_plan', planRows, (r) => (r as { book_id: string }).book_id);
+  rejectDuplicateKeys('daily_stat', statRows, (r) => (r as { date: string }).date);
+  rejectDuplicateKeys('kv', kvRows, (r) => (r as { key: string }).key);
+  // v1 没有题库：当成空数组；v2 这两张表必须有、行格式正确、主键不重复
   if (o.version >= 2) {
     checkRows('question', o.question, isQuestionRow);
     checkRows('attempt', o.attempt, isAttemptRow);
+    rejectDuplicateKeys('question', o.question as object[], (r) => (r as { id: string }).id);
+    rejectDuplicateKeys('attempt', o.attempt as object[], (r) => (r as { id: string }).id);
   }
   const question = o.version >= 2 ? (o.question as QuestionRow[]) : [];
   const attempt = o.version >= 2 ? (o.attempt as AttemptRow[]) : [];
-  const ids = new Set(question.map((q) => q.id));
+  const byId = new Map(question.map((q) => [q.id, q]));
   attempt.forEach((a, i) => {
-    if (!ids.has(a.question_id))
-      throw new BackupError(`备份文件的 attempt 第 ${i + 1} 行对应的题目不存在`);
+    const q = byId.get(a.question_id);
+    if (!q) throw new BackupError(`备份文件的 attempt 第 ${i + 1} 行对应的题目不存在`);
+    if (q.exam !== a.exam || q.section !== a.section || q.type !== a.type) {
+      throw new BackupError(`备份文件的 attempt 第 ${i + 1} 行和对应题目的考试或题型不一致`);
+    }
   });
   const p = o as unknown as BackupPayload;
   return {

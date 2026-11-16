@@ -156,6 +156,30 @@ describe('交卷与错题本重做', () => {
     expect(open).toEqual([]);
   });
 
+  it('同一份答案连交两次只留一行，错题次数不因重复点击加一', async () => {
+    const { set } = await prepareListeningSet(user, 'lecture', {
+      deps: { cfg: CFG, chat: fakeChat(DEMO_LECTURE) },
+    });
+    let sheet = createListeningSheet(set.payload);
+    sheet = sheetReducer(sheet, { type: 'answer', index: 0, value: 'D' });
+    const times = { startedAt: T0, submittedAt: T0 + 1000 };
+    const [a, b] = await Promise.all([
+      saveListeningAttempt(user, set, sheet, times),
+      saveListeningAttempt(user, set, sheet, times),
+    ]);
+    const again = await saveListeningAttempt(user, set, sheet, times);
+    expect(b.id).toBe(a.id);
+    expect(again.id).toBe(a.id);
+    expect(await listAttemptsForQuestion(user, set.questionId)).toHaveLength(1);
+    expect((await listOpenMistakes(user, 'cet6'))[0]).toMatchObject({
+      question_id: set.questionId,
+      wrong_count: a.wrong_count,
+      miss_times: 1,
+    });
+    await saveListeningAttempt(user, set, sheet, { startedAt: T0 + 5, submittedAt: T0 + 6 });
+    expect(await listAttemptsForQuestion(user, set.questionId)).toHaveLength(2);
+  });
+
   it('重做链接打不开：题型不对 / 找不到都给中文原因', async () => {
     const { set } = await prepareListeningSet(user, 'lecture', {
       deps: { cfg: CFG, chat: fakeChat(DEMO_LECTURE) },
