@@ -6,7 +6,7 @@
 import { useReducer } from 'react';
 
 import { getDatabases } from '../../db/open';
-import { insertAttempt } from '../../db/questionRepo';
+import { putAttemptOnce } from '../../db/questionRepo';
 import type { SqlDb } from '../../db/types';
 import {
   createListeningSheet,
@@ -30,6 +30,7 @@ import {
   type SpeechPlayer,
   type VoicePlan,
 } from '../../lib/listening-player';
+import { singleFlight, submissionFlightKey } from '../../lib/singleFlight';
 import { uuidv4 } from '../../lib/uuid';
 import { listVoices, speakUtterance, stopSpeech } from '../../platform/speech';
 import { readSelectedExam } from '../exam/service';
@@ -167,7 +168,10 @@ export async function startListeningRedo(
 
 // ---------- 交卷 ----------
 
-/** 判分并写一行 attempt（规则同阅读：score = 答对题数，wrong_count = 答错含未答，needs_redo = 0） */
+/**
+ * 判分并写一行 attempt（规则同阅读：score = 答对题数，wrong_count = 答错含未答，needs_redo = 0）。
+ * 查重和插入在同一个事务里。同一题、同一次开始时间、同一份答案再交一次不会再插入。
+ */
 export async function saveListeningAttempt(
   user: SqlDb,
   set: ListeningSet,
@@ -192,8 +196,18 @@ export async function saveListeningAttempt(
     started_at: times.startedAt,
     submitted_at: times.submittedAt,
   };
-  await insertAttempt(user, row);
-  return row;
+  return singleFlight(
+    submissionFlightKey([
+      { questionId: row.question_id, startedAt: row.started_at, answer: row.answer },
+    ]),
+    async () => {
+      let stored = row;
+      await user.withTransactionAsync(async () => {
+        stored = await putAttemptOnce(user, row);
+      });
+      return stored;
+    },
+  );
 }
 
 export async function submitListeningSet(

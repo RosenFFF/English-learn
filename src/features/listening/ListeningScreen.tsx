@@ -4,7 +4,7 @@
  */
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, usePreventRemove } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,6 +12,7 @@ import { confirmAsync } from '../../ui/confirm';
 import { HighlightCard } from '../../ui/HighlightCard';
 import { Button, Card, Notice, PressableScale, Txt } from '../../ui/primitives';
 import { MAX_WIDTH, space, usePalette } from '../../ui/theme';
+import { practiceSaveError } from '../generation/llm';
 import { useGenerationSession } from '../generation/useGenerationSession';
 import { GenerationPhaseView, PracticeTopBar } from '../generation/views';
 import { breakLongWords, ChoiceButton, gradedState, ScoreCard, Verdict } from '../reading/parts';
@@ -19,7 +20,6 @@ import { PlayerPanel } from './PlayerPanel';
 import {
   LISTENING_TYPE_META,
   answeredCount,
-  describeListeningError,
   gradeListening,
   isNarrator,
   letterOf,
@@ -154,6 +154,7 @@ function Attempt({
   const grade = useMemo(() => (sheet.submitted ? gradeListening(set, sheet) : null), [set, sheet]);
   const done = answeredCount(sheet);
   const total = sheet.answers.length;
+  const saveLock = useRef(false);
 
   // 念到过的最大题号：念题打开时题干念到才显示
   const [readUpTo, setReadUpTo] = useState(-1);
@@ -171,17 +172,37 @@ function Attempt({
     );
   });
 
-  const submit = async (): Promise<void> => {
-    const { title, message } = submitPrompt(sheet);
-    if (!(await confirmAsync(title, message, '提交'))) return;
-    player.stop();
-    dispatch({ type: 'submit' });
+  const writeOnce = useCallback(async (): Promise<void> => {
     setSave({ kind: 'saving' });
     try {
       const { wrongCount } = await submitListeningSet(set, sheet, startedAt);
       setSave({ kind: 'saved', wrongCount });
     } catch (e) {
-      setSave({ kind: 'failed', message: describeListeningError(e).replace(/^出题失败：/, '') });
+      setSave({ kind: 'failed', message: practiceSaveError(e) });
+    }
+  }, [set, sheet, startedAt]);
+
+  const persist = useCallback(async (): Promise<void> => {
+    if (saveLock.current) return;
+    saveLock.current = true;
+    try {
+      await writeOnce();
+    } finally {
+      saveLock.current = false;
+    }
+  }, [writeOnce]);
+
+  const submit = async (): Promise<void> => {
+    if (saveLock.current || sheet.submitted) return;
+    saveLock.current = true;
+    try {
+      const { title, message } = submitPrompt(sheet);
+      if (!(await confirmAsync(title, message, '提交'))) return;
+      player.stop();
+      dispatch({ type: 'submit' });
+      await writeOnce();
+    } finally {
+      saveLock.current = false;
     }
   };
 
@@ -317,6 +338,8 @@ function Attempt({
             variant="caption"
             tone={save.kind === 'failed' ? 'danger' : 'tertiary'}
             style={styles.saveNote}
+            accessibilityRole={save.kind === 'failed' ? 'alert' : undefined}
+            accessibilityLiveRegion="polite"
             testID="listening-saved"
           >
             {save.kind === 'saving'
@@ -326,21 +349,41 @@ function Attempt({
                   ? `已保存 · ${redoOutcomeText({ kind: 'objective', wrongCount: save.wrongCount })}`
                   : '已保存到练习记录'
                 : save.kind === 'failed'
-                  ? `练习记录没保存上：${save.message}`
+                  ? save.message
                   : ''}
           </Txt>
+          {save.kind === 'failed' ? (
+            <View style={[styles.footerInner, { marginBottom: space.sm }]}>
+              <View style={{ flex: 1 }}>
+                <Button
+                  label="重试保存"
+                  size="md"
+                  onPress={() => void persist()}
+                  accessibilityHint="再保存这次作答，已选答案会保留"
+                  testID="listening-retry-save"
+                />
+              </View>
+            </View>
+          ) : null}
           <View style={styles.footerInner}>
             <View style={{ flex: 1 }}>
               <Button
                 label="再做一遍"
                 kind="secondary"
                 size="md"
+                disabled={save.kind === 'saving'}
                 onPress={retry}
                 testID="listening-retry"
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Button label="完成" size="md" onPress={exit} testID="listening-done" />
+              <Button
+                label="完成"
+                size="md"
+                disabled={save.kind === 'saving'}
+                onPress={exit}
+                testID="listening-done"
+              />
             </View>
           </View>
         </View>

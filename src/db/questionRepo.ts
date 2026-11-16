@@ -81,6 +81,34 @@ export async function insertAttempt(db: SqlDb, a: AttemptRow): Promise<void> {
 }
 
 /**
+ * 同一题、同一次开始时间、同一份答案已经写过的那条（重复点击或保存重试）。
+ * 有多条时按提交时间、再按 id 降序取最近一条，和错题本「最近一次」的次序一致。
+ */
+export async function findAttemptBySubmission(
+  db: SqlDb,
+  questionId: string,
+  startedAt: number,
+  answer: string,
+): Promise<AttemptRow | null> {
+  return db.getFirstAsync<AttemptRow>(
+    `SELECT * FROM attempt WHERE question_id = ? AND started_at = ? AND answer = ?
+     ORDER BY submitted_at DESC, id DESC LIMIT 1`,
+    [questionId, startedAt, answer],
+  );
+}
+
+/**
+ * 写入一条作答；上面这种「同一份提交」已经存在就原样返回，不再插入。
+ * 一次交卷有多行时，调用方要把多次调用放进同一个事务，这样中途失败会整批回滚。
+ */
+export async function putAttemptOnce(db: SqlDb, row: AttemptRow): Promise<AttemptRow> {
+  const existing = await findAttemptBySubmission(db, row.question_id, row.started_at, row.answer);
+  if (existing) return existing;
+  await insertAttempt(db, row);
+  return row;
+}
+
+/**
  * 某道题的全部作答，最新的在前；同一时间戳按 id 降序定一个确定的次序
  * （和 listOpenMistakes 取「最近一次」的次序一致，第一条就是错题本看的那条）。
  */

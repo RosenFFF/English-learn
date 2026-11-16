@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams, usePreventRemove } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -9,7 +9,6 @@ import { MatchingView } from '@/features/reading/MatchingView';
 import {
   READING_TYPE_META,
   answeredCount,
-  describeReadingError,
   gradeSheet,
   isReadingQuestionType,
   needsExitConfirm,
@@ -21,6 +20,7 @@ import {
   type ReadingSet,
 } from '@/features/reading/service';
 import { useReadingSession } from '@/features/reading/useReadingSession';
+import { practiceSaveError } from '@/features/generation/llm';
 import { GenerationPhaseView, PracticeTopBar } from '@/features/generation/views';
 import { confirmAsync } from '@/ui/confirm';
 import { Button, Notice, Screen, Txt } from '@/ui/primitives';
@@ -66,6 +66,7 @@ function Attempt({
   const meta = READING_TYPE_META[set.type];
   const done = answeredCount(sheet);
   const total = sheet.answers.length;
+  const saveLock = useRef(false);
 
   // 中途退出（关闭按钮、系统返回、iOS 侧滑）：答过题还没提交时先确认
   usePreventRemove(needsExitConfirm(sheet) && !leaving, ({ repeat }) => {
@@ -78,16 +79,37 @@ function Attempt({
     );
   });
 
-  const submit = async (): Promise<void> => {
-    const { title, message } = submitPrompt(sheet);
-    if (!(await confirmAsync(title, message, '提交'))) return;
-    dispatch({ type: 'submit' });
+  const writeOnce = useCallback(async (): Promise<void> => {
     setSave({ kind: 'saving' });
     try {
       const { wrongCount } = await submitReadingSet(set, sheet, startedAt);
       setSave({ kind: 'saved', wrongCount });
     } catch (e) {
-      setSave({ kind: 'failed', message: describeReadingError(e).replace(/^出题失败：/, '') });
+      setSave({ kind: 'failed', message: practiceSaveError(e) });
+    }
+  }, [set, sheet, startedAt]);
+
+  // 确认框还开着、或正在写库时，再点一次直接忽略。失败后的「重试保存」走同一把锁。
+  const persist = useCallback(async (): Promise<void> => {
+    if (saveLock.current) return;
+    saveLock.current = true;
+    try {
+      await writeOnce();
+    } finally {
+      saveLock.current = false;
+    }
+  }, [writeOnce]);
+
+  const submit = async (): Promise<void> => {
+    if (saveLock.current || sheet.submitted) return;
+    saveLock.current = true;
+    try {
+      const { title, message } = submitPrompt(sheet);
+      if (!(await confirmAsync(title, message, '提交'))) return;
+      dispatch({ type: 'submit' });
+      await writeOnce();
+    } finally {
+      saveLock.current = false;
     }
   };
 
@@ -140,6 +162,8 @@ function Attempt({
             variant="caption"
             tone={save.kind === 'failed' ? 'danger' : 'tertiary'}
             style={styles.saveNote}
+            accessibilityRole={save.kind === 'failed' ? 'alert' : undefined}
+            accessibilityLiveRegion="polite"
             testID="reading-saved"
           >
             {save.kind === 'saving'
@@ -149,15 +173,29 @@ function Attempt({
                   ? `已保存 · ${redoOutcomeText({ kind: 'objective', wrongCount: save.wrongCount })}`
                   : '已保存到练习记录'
                 : save.kind === 'failed'
-                  ? `练习记录没保存上：${save.message}`
+                  ? save.message
                   : ''}
           </Txt>
+          {save.kind === 'failed' ? (
+            <View style={[styles.footerInner, { marginBottom: space.sm }]}>
+              <View style={{ flex: 1 }}>
+                <Button
+                  label="重试保存"
+                  size="md"
+                  onPress={() => void persist()}
+                  accessibilityHint="再保存这次作答，已选答案会保留"
+                  testID="reading-retry-save"
+                />
+              </View>
+            </View>
+          ) : null}
           <View style={styles.footerInner}>
             <View style={{ flex: 1 }}>
               <Button
                 label="再做一遍"
                 kind="secondary"
                 size="md"
+                disabled={save.kind === 'saving'}
                 onPress={() => {
                   dispatch({ type: 'reset' });
                   setSave({ kind: 'idle' });
@@ -167,7 +205,13 @@ function Attempt({
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Button label="完成" size="md" onPress={exit} testID="reading-done" />
+              <Button
+                label="完成"
+                size="md"
+                disabled={save.kind === 'saving'}
+                onPress={exit}
+                testID="reading-done"
+              />
             </View>
           </View>
         </View>

@@ -64,7 +64,7 @@ assets/db/words.db   只读词库（构建时生成，脚本在 scripts/build-wo
 ## 备份格式
 - 导出文件 `format: 'english-learn-backup'`，当前 `version: 2`（`BACKUP_VERSION`，src/lib/backup.ts）。
 - v1：card、review_log、study_plan、daily_stat、kv（白名单）。v2 增加 question、attempt。
-- 导入 v1 时题库视为空：导入后题库被清空（与「整体替换」一致）。版本号大于当前版本时拒绝导入，提示先升级 App。
+- 导入 v1 时题库视为空：导入后题库被清空（与「整体替换」一致）。只接受版本 1 和 2：比当前版本新的提示先升级；缺版本、0、负数、小数等在解析阶段拒绝，不会开始恢复，所以不会先清空现有数据。同一张表主键重复，或 attempt 的考试、板块、题型和对应题目不一致，同样在解析阶段拒绝。再导入同一份文件是整体替换，不会把记录追加成两份。
 - 导入在一个事务里完成：先删 attempt 再删 question，再插入；任何一行出错整体回滚。
 
 ## 题库与评分层（src/lib/exam）
@@ -77,7 +77,7 @@ assets/db/words.db   只读词库（构建时生成，脚本在 scripts/build-wo
 - `grade.ts`：客观题本地判分（每题 1 分，返回 score、maxScore、wrongCount、逐题对错）；翻译、写作调用 LLM 按六级 15 分制评分，结果同样走 zod 校验和重试（分数 0 到 15，翻译分数要落在所给档次内）。主观题返回 wrongCount = 0、needsRedo = score < 9；空白作答直接 0 分，不调用 LLM。
 - 主观题点评（`FEEDBACK_VERSION` = 2）：总评 summary、档次 band（不让模型返回，由 `bandForScore` 按分数算：从高到低取第一个下限不超过分数的档次，边界分归高档；读库时也一律重算）、分项点评 criteria（翻译：accuracy / vocabulary / grammar / fluency；写作：content / organization / vocabulary / grammar；每项 level 为 good / fair / weak 加中文 comment，每个维度恰好一条，输出按固定顺序）、逐句点评 sentences（翻译）或问题清单 issues（写作）、英文改写示例 rewrite。zod 校验分数 0 到 15、维度齐全不重复、改写不含中文（模型多给的 band 忽略，不算失败）；点评文字在 schema 里清洗（去控制字符、规整空白）并按 `FEEDBACK_LIMITS` 截断，条目最多 30 条。
 - `feedback.ts`：`subjectiveAttemptFields(grade)` 把评分结果转成 attempt 行的 score / max_score / feedback / wrong_count / needs_redo；feedback 列存 JSON，顶层带 `version` 和 `promptVersion`。`parseStoredFeedback(type, text)` 读回：没有 version 的老记录按 v1 宽松读（criteria、翻译 rewrite 可缺；band 按分数补上），version 2 严格读，更新的版本提示升级。不做数据迁移。
-- 题目和作答怎么写进数据库由 features 层负责：拿 generate / grade 的结果拼成 QuestionRow / AttemptRow，再调 src/db/questionRepo.ts。
+- 题目和作答怎么写进数据库由 features 层负责：拿 generate / grade 的结果拼成 QuestionRow / AttemptRow，再调 src/db/questionRepo.ts。一次交卷里的多条 attempt（仔细阅读两篇），以及主观题的 attempt 与清草稿，各自放在一个事务里，中途失败则整批回滚。同一题、同一次开始时间、同一份答案再交一次不会再插入。评分请求已经取消时不写 attempt。翻译、写作低于 9 分时 needs_redo = 1、wrong_count = 0，因此进错题本。
 
 ## 代码规范
 TypeScript strict，禁止 any；ESLint + Prettier；Conventional Commits；

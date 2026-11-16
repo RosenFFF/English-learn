@@ -141,8 +141,13 @@ function Composer({
 
   // ---------- 交卷评分 ----------
   const ctrl = useRef<AbortController | null>(null);
+  const held = useRef(false);
+  const confirming = useRef(false);
   useEffect(() => () => ctrl.current?.abort(), []);
   const grade = useCallback(async () => {
+    // 同步占住：确认框连点两次只会有一次真正去评分
+    if (held.current) return;
+    held.current = true;
     ctrl.current?.abort();
     const c = new AbortController();
     ctrl.current = c;
@@ -150,19 +155,29 @@ function Composer({
     try {
       await persist(text); // 先把草稿存上，评分失败也不丢
       const view = await submitSubjective(question, text, startedAt, c.signal, slot);
-      if (!c.signal.aborted) setStage({ kind: 'graded', view });
+      if (ctrl.current !== c || c.signal.aborted) return;
+      setStage({ kind: 'graded', view });
     } catch (e) {
-      if (c.signal.aborted || isAbort(e)) return;
+      if (ctrl.current !== c || c.signal.aborted || isAbort(e)) return;
       setStage({ kind: 'gradeError', message: describeGenerationError(e, '评分') });
+    } finally {
+      if (ctrl.current === c) held.current = false;
     }
   }, [persist, question, text, startedAt, slot]);
 
   const submit = async () => {
-    const check = submitCheck(text, hint);
-    if (await confirmAsync(check.title, check.message, '交卷')) void grade();
+    if (held.current || confirming.current) return;
+    confirming.current = true;
+    try {
+      const check = submitCheck(text, hint);
+      if (await confirmAsync(check.title, check.message, '交卷')) void grade();
+    } finally {
+      confirming.current = false;
+    }
   };
   const backToEdit = () => {
     ctrl.current?.abort();
+    held.current = false;
     setStage({ kind: 'writing' });
   };
 

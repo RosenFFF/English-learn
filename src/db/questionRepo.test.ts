@@ -330,6 +330,79 @@ describe('备份 v2：题库随备份导出、导入', () => {
     expect(await repo.getActivePlan(db)).toMatchObject({ book_id: 'cet6' });
   });
 
+  it('中文内容、空的学习进度、多道题：导入两次后错题和统计仍各一份，不是追加', async () => {
+    await repo.kvSet(db, 'exam', 'cet6');
+    await repo.kvSet(db, 'llm_model', '深度求索');
+    await qrepo.insertQuestion(
+      db,
+      question('cn', { payload: JSON.stringify({ passage: '远程办公改变了协作方式' }) }),
+    );
+    await qrepo.insertQuestion(
+      db,
+      question('en', { payload: '{"passage":"b"}', created_at: T0 + 1 }),
+    );
+    await qrepo.insertAttempt(
+      db,
+      attempt('a-cn', 'cn', { answer: '["A"]', score: 0, max_score: 1, wrong_count: 1 }),
+    );
+    await qrepo.insertAttempt(db, attempt('a-en', 'en', { wrong_count: 2, submitted_at: T0 + 2 }));
+    const dump = await repo.dumpForBackup(db, 2, T0);
+    expect(dump.card).toEqual([]);
+    expect(dump.daily_stat).toEqual([]);
+    expect(dump.review_log).toEqual([]);
+    const text = JSON.stringify(dump);
+    expect(text).toContain('远程办公改变了协作方式');
+    expect(text).toContain('深度求索');
+
+    const other = openMemoryDb();
+    await runMigrations(other, MIGRATIONS, T0);
+    await qrepo.insertQuestion(other, question('stale'));
+    await qrepo.insertAttempt(other, attempt('stale-a', 'stale'));
+    const payload = parseBackup(text);
+    await repo.restoreFromBackup(other, payload);
+    await repo.restoreFromBackup(other, payload);
+
+    expect(await qrepo.getQuestion(other, 'stale')).toBeNull();
+    expect(await other.getAllAsync('SELECT id FROM question ORDER BY id', [])).toEqual([
+      { id: 'cn' },
+      { id: 'en' },
+    ]);
+    expect(await other.getAllAsync('SELECT id FROM attempt ORDER BY id', [])).toEqual([
+      { id: 'a-cn' },
+      { id: 'a-en' },
+    ]);
+    expect((await qrepo.getQuestion(other, 'cn'))?.payload).toContain('远程办公改变了协作方式');
+    expect(await repo.kvGet(other, 'llm_model')).toBe('深度求索');
+    expect(await repo.kvGet(other, 'exam')).toBe('cet6');
+    expect(await qrepo.listOpenMistakes(other, 'cet6')).toHaveLength(2);
+    expect(await qrepo.statsBySection(other, 'cet6')).toEqual([
+      expect.objectContaining({
+        section: 'reading',
+        attempts: 2,
+        score_sum: 3,
+        max_score_sum: 6,
+        wrong_sum: 3,
+        redo_count: 0,
+      }),
+    ]);
+  });
+
+  it('无法识别的版本和重复主键在解析阶段拒绝，不会进入恢复，原题库还在', async () => {
+    await seed(db);
+    const before = await dumpTables(db);
+    const dump = await repo.dumpForBackup(db, 2, T0);
+    expect(() => parseBackup(JSON.stringify({ ...dump, version: 0 }))).toThrow(
+      /无法识别的备份版本/,
+    );
+    expect(() => parseBackup(JSON.stringify({ ...dump, version: 1.5 }))).toThrow(
+      /无法识别的备份版本/,
+    );
+    expect(() =>
+      parseBackup(JSON.stringify({ ...dump, question: [dump.question![0], dump.question![0]] })),
+    ).toThrow(/question 第 2 行主键重复/);
+    expect(await dumpTables(db)).toEqual(before);
+  });
+
   it('导入中途失败整体回滚，题库保持原样', async () => {
     await seed(db);
     const before = await dumpTables(db);

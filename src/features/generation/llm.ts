@@ -58,3 +58,10 @@ export function describeGenerationError(e: unknown, what = '出题'): string {
 export function isAbort(e: unknown): boolean {
   return e instanceof LlmError && e.kind === 'aborted';
 }
+
+/** 客观题交卷没写进练习记录：不说成功，点明可以重试，已选答案还在 */
+export function practiceSaveError(e: unknown): string {
+  const raw = e instanceof Error ? e.message.trim() : '';
+  const detail = (raw || '请再试一次').slice(0, 80);
+  return `没保存上（${detail}）。请点「重试保存」，已选答案还在。`;
+}
